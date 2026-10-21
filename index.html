@@ -35,7 +35,7 @@
         <button id="shot" class="round" title="PNG保存">📷</button>
         <button id="reset" class="round" title="プリセットの色に戻す">↺</button>
       </div>
-      <h2>プリセット</h2>
+      <h2>プリセット <span class="hint">(右の2つは3色版: 近回り・遠回り)</span></h2>
       <div id="presets" class="chips"></div>
       <h2>色をえらぶ</h2>
       <div class="pick">
@@ -46,8 +46,8 @@
       <label class="third"><input type="checkbox" id="use3" /> 3色目を間にはさむ(A→C→B)</label>
       <div class="pick" id="c3row" hidden>
         <label>C <input type="color" id="cc" /></label>
-        <button id="cauto" title="AとBの真ん中の明るさ・鮮やかさで、色相だけ近い側の中間にした色">自動</button>
-        <span class="hint">灰色の真ん中を避けて外側を通すと、RGBでも濁らない。自動=明るさと鮮やかさは両はしの平均、色相は近い側の中間</span>
+        <span class="seg2" id="carc" title="自動: 明るさと鮮やかさは両はしの平均、色相は色相環の近い側/反対側の真ん中"><button data-arc="near">近回り</button><button data-arc="far">遠回り</button></span>
+        <span class="hint">灰色の真ん中を避けて外側を通すと、RGBでも濁らない。近回り/遠回り=自動、Cを選ぶと手動</span>
       </div>
       <h2>お気に入り</h2>
       <div id="favs" class="chips"></div>

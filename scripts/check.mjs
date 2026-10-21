@@ -60,15 +60,17 @@ for (const [name, a, b] of PAIRS) {
   ok(p.h > 100 && p.h < 180 && p.C > r.C, `絵の具式 青+黄=緑 (h=${p.h.toFixed(0)}° C=${p.C.toFixed(3)} > RGB ${r.C.toFixed(3)})`);
 }
 
-// 7. 自動の3色目: 補色ペアで RGB の最小彩度が 0.05 超に上がる/無彩色ペアは灰色のまま
-for (const [name, a, b] of PAIRS) {
-  const c = C.autoThird(H(a), H(b));
+// 7. 自動の3色目: 補色ペアは近回り・遠回りとも RGB の最小彩度が 0.05 超に上がる
+for (const [name, a, b] of PAIRS) for (const arc of ["near", "far"]) {
+  const c = C.autoThird(H(a), H(b), arc);
   const minC = Math.min(...Array.from({ length: 97 }, (_, i) => C.oklch(C.mixPath(C.mixRgb, [H(a), H(b), c], i / 96)).C));
-  ok(minC > 0.05, `${name}: 自動3色目 ${C.rgbToHex(c)} でRGBの最小C=${minC.toFixed(3)} (>0.05)`);
+  ok(minC > 0.05, `${name} ${arc}: 自動3色目 ${C.rgbToHex(c)} でRGBの最小C=${minC.toFixed(3)} (>0.05)`);
 }
-{
-  const g = C.oklch(C.autoThird(H("#ffffff"), H("#000000")));
-  ok(g.C < 0.01, `白×黒: 自動3色目は灰色 (C=${g.C.toFixed(4)})`);
+// 8. 近回りと遠回りは別の色相(差 90° 超)、3色目は色みを持つ(白×黒・白×赤も)
+for (const [name, a, b] of [...PAIRS, ["白×黒", "#ffffff", "#000000"], ["白×赤", "#ffffff", "#ff0000"], ["群青×山吹", "#1e3a8a", "#f2b01e"]]) {
+  const n = C.oklch(C.autoThird(H(a), H(b), "near")), f = C.oklch(C.autoThird(H(a), H(b), "far"));
+  let d = Math.abs(n.h - f.h); if (d > 180) d = 360 - d;
+  ok(d > 90 && n.C > 0.03 && f.C > 0.03, `${name}: 近 h=${n.h.toFixed(0)} C=${n.C.toFixed(3)} / 遠 h=${f.h.toFixed(0)} C=${f.C.toFixed(3)}`);
 }
 
 // 6. Oklab 往復

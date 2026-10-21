@@ -32,21 +32,15 @@ const PRESET_GROUPS = [
     { name: "黒×シアン", a: "#000000", b: "#00ffff" },
     { name: "白×青", a: "#ffffff", b: "#0000ff" },
   ]],
-  ["3色で回り道", [
-    { name: "青×黄+緑", a: "#0000ff", b: "#ffff00", c: "#00c070" },
-    { name: "青×黄+赤(逆回り)", a: "#0000ff", b: "#ffff00", c: "#ff2050" },
-    { name: "赤×シアン+紫", a: "#ff0000", b: "#00ffff", c: "#8040ff" },
-    { name: "緑×マゼンタ+黄", a: "#00ff00", b: "#ff00ff", c: "#ffd000" },
-  ]],
 ];
 const PRESETS = PRESET_GROUPS.flatMap(([, ps]) => ps);
-const DEFAULT = PRESETS[0];
+const DEFAULT = { ...PRESETS[0], name: "青×黄+近回り", use3: true, arc: "near" }; // 開いた直後は3色(自動・近回り)
 const FAV_KEY = "iromaze-lab-favs-v1";
 const PATH_COL = { rgb: "#ffffff", oklab: "#4fd1ff", paint: "#ffa94d" };
 const PATH_DASH = { rgb: [], oklab: [7, 5], paint: [2, 4] };
 
 const $ = (id) => document.getElementById(id);
-const state = { a: DEFAULT.a, b: DEFAULT.b, c: "#00c070", cAuto: true, use3: false, preset: DEFAULT, space: "rgb" };
+const state = { a: DEFAULT.a, b: DEFAULT.b, c: "#00c070", cAuto: true, cArc: "near", use3: true, preset: DEFAULT, space: "rgb" };
 
 // ---- hub(🏠だけ。進捗は持たない)----
 {
@@ -65,14 +59,15 @@ function readHash() {
   if (hex(p.get("a")) && hex(p.get("b"))) {
     state.a = hex(p.get("a"));
     state.b = hex(p.get("b"));
-    state.use3 = !!hex(p.get("c")) || p.get("c") === "auto";
+    state.use3 = !!hex(p.get("c")) || p.get("c") === "auto" || p.get("c") === "far";
     state.cAuto = !hex(p.get("c"));
+    state.cArc = p.get("c") === "far" ? "far" : "near";
     if (hex(p.get("c"))) state.c = hex(p.get("c"));
-    state.preset = { name: "URL", a: state.a, b: state.b, c: state.use3 && !state.cAuto ? state.c : undefined, use3: state.use3 };
+    state.preset = { name: "URL", a: state.a, b: state.b, c: state.use3 && !state.cAuto ? state.c : undefined, use3: state.use3, arc: state.cArc };
   }
 }
 function writeHash() {
-  const h = `a=${state.a.slice(1)}&b=${state.b.slice(1)}` + (state.use3 ? `&c=${state.cAuto ? "auto" : state.c.slice(1)}` : "");
+  const h = `a=${state.a.slice(1)}&b=${state.b.slice(1)}` + (state.use3 ? `&c=${state.cAuto ? (state.cArc === "far" ? "far" : "auto") : state.c.slice(1)}` : "");
   history.replaceState(null, "", "#" + h);
 }
 
@@ -264,6 +259,7 @@ function applyPreset(p) {
   state.a = p.a; state.b = p.b;
   state.use3 = !!p.c || !!p.use3;
   state.cAuto = !p.c;
+  state.cArc = p.arc === "far" ? "far" : "near";
   if (p.c) state.c = p.c;
   syncInputs(); update();
 }
@@ -274,7 +270,21 @@ function renderPresets() {
     const h = document.createElement("div");
     h.className = "group"; h.textContent = group;
     box.appendChild(h);
-    for (const p of ps) box.appendChild(chip(p.name, [p.a, p.b, p.c].filter(Boolean), () => applyPreset(p)));
+    for (const p of ps) {
+      // 2色 + 3色(近回り・遠回り)を1行に
+      const row = document.createElement("div");
+      row.className = "prow";
+      row.appendChild(chip(p.name, [p.a, p.b], () => applyPreset(p)));
+      for (const [arc, label] of [["near", "近回り"], ["far", "遠回り"]]) {
+        const c = rgbToHex(autoThird(hexToRgb(p.a), hexToRgb(p.b), arc));
+        const v = { name: `${p.name}+${label}`, a: p.a, b: p.b, use3: true, arc };
+        const el = chip(label, [p.a, c, p.b], () => applyPreset(v));
+        el.classList.add("mini");
+        el.title = `${p.name} を ${c} 経由で(${label})`;
+        row.appendChild(el);
+      }
+      box.appendChild(row);
+    }
   }
 }
 const loadFavs = () => { try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch { return []; } };
@@ -292,9 +302,8 @@ function renderFavs() {
   );
 }
 function syncInputs() {
-  if (state.cAuto) state.c = rgbToHex(autoThird(hexToRgb(state.a), hexToRgb(state.b)));
-  $("cauto").textContent = state.cAuto ? "自動" : "自動に戻す";
-  $("cauto").classList.toggle("on", state.cAuto);
+  if (state.cAuto) state.c = rgbToHex(autoThird(hexToRgb(state.a), hexToRgb(state.b), state.cArc));
+  document.querySelectorAll("#carc button").forEach((b) => b.classList.toggle("on", state.cAuto && b.dataset.arc === state.cArc));
   $("ca").value = state.a; $("cb").value = state.b; $("cc").value = state.c;
   $("use3").checked = state.use3; $("c3row").hidden = !state.use3;
 }
@@ -307,7 +316,12 @@ function update() {
 $("ca").addEventListener("input", (e) => { state.a = e.target.value; syncInputs(); update(); });
 $("cb").addEventListener("input", (e) => { state.b = e.target.value; syncInputs(); update(); });
 $("cc").addEventListener("input", (e) => { state.c = e.target.value; state.cAuto = false; syncInputs(); update(); });
-$("cauto").addEventListener("click", () => { state.cAuto = true; syncInputs(); update(); toast("3色目をAとBから自動で決めます"); });
+document.querySelectorAll("#carc button").forEach((b) =>
+  b.addEventListener("click", () => {
+    state.cAuto = true; state.cArc = b.dataset.arc; syncInputs(); update();
+    toast(`3色目を自動で(${b.textContent})`);
+  })
+);
 $("use3").addEventListener("change", (e) => { state.use3 = e.target.checked; syncInputs(); update(); });
 $("swap").addEventListener("click", () => { [state.a, state.b] = [state.b, state.a]; syncInputs(); update(); });
 $("reset").addEventListener("click", () => { applyPreset(state.preset); toast(`「${state.preset.name}」の色に戻しました`); });
@@ -316,7 +330,7 @@ $("fav").addEventListener("click", () => {
   const name = prompt("名前をつけて保存", def);
   if (name === null) return;
   const all = loadFavs();
-  all.push({ name: name.trim() || def, a: state.a, b: state.b, c: state.use3 && !state.cAuto ? state.c : undefined, use3: state.use3 });
+  all.push({ name: name.trim() || def, a: state.a, b: state.b, c: state.use3 && !state.cAuto ? state.c : undefined, use3: state.use3, arc: state.cArc });
   localStorage.setItem(FAV_KEY, JSON.stringify(all));
   renderFavs(); toast("保存しました");
 });

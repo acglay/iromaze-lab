@@ -59,19 +59,26 @@ function oklabToLinRaw([L, a, b]) {
     -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
   ];
 }
-export function autoThird(a, b) {
+// arc: "near"=色相環の近い側の真ん中 / "far"=反対側の真ん中。
+// 片方が無彩色ならもう一方の色相(far はその反対色)、両方無彩色なら 暖色(near)/寒色(far)
+export function autoThird(a, b, arc = "near") {
   const A = oklch(a), B = oklch(b);
   const L = (A.L + B.L) / 2;
   let C = (A.C + B.C) / 2;
   let h;
-  if (A.C < 0.02 && B.C < 0.02) return oklabToRgb([L, 0, 0]);
-  if (A.C < 0.02) h = B.h;
-  else if (B.C < 0.02) h = A.h;
-  else {
-    let d = B.h - A.h;
-    if (d > 180) d -= 360;
-    if (d < -180) d += 360;
-    h = A.h + d / 2;
+  if (A.C < 0.02 && B.C < 0.02) {
+    C = 0.12;
+    h = arc === "far" ? 250 : 60;
+  } else {
+    if (A.C < 0.02) h = B.h;
+    else if (B.C < 0.02) h = A.h;
+    else {
+      let d = B.h - A.h;
+      if (d > 180) d -= 360;
+      if (d < -180) d += 360;
+      h = A.h + d / 2;
+    }
+    if (arc === "far") h += 180;
   }
   const hr = (h * Math.PI) / 180;
   const inGamut = (c) => oklabToLinRaw([L, c * Math.cos(hr), c * Math.sin(hr)]).every((v) => v >= -1e-4 && v <= 1 + 1e-4);
