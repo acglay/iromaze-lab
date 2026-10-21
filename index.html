@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>いろまぜラボ</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎨</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="vendor/spectral.js"></script>
+</head>
+<body>
+  <div class="app">
+    <main class="view">
+      <header>
+        <a id="home" class="home" href="https://hub-ashy-delta.vercel.app" hidden>🏠</a>
+        <h1>🎨 いろまぜラボ</h1>
+        <span class="sub">同じ色を3通りでまぜて、にごり方をくらべる</span>
+      </header>
+      <section id="bands"></section>
+      <section class="cube">
+        <div class="cubehead">
+          <b>色の空間の中の通り道</b>
+          <span class="seg">
+            <button data-space="rgb" class="on">RGB立方体</button>
+            <button data-space="oklab">Oklab</button>
+          </span>
+        </div>
+        <canvas id="cube"></canvas>
+        <p class="hint" id="cubehint"></p>
+      </section>
+    </main>
+    <aside class="panel">
+      <div class="actions">
+        <button id="fav" class="round" title="お気に入りに保存">☆</button>
+        <button id="shot" class="round" title="PNG保存">📷</button>
+        <button id="reset" class="round" title="プリセットの色に戻す">↺</button>
+      </div>
+      <h2>プリセット</h2>
+      <div id="presets" class="chips"></div>
+      <h2>色をえらぶ</h2>
+      <div class="pick">
+        <label>A <input type="color" id="ca" /></label>
+        <button id="swap" title="AとBを入れかえ">⇄</button>
+        <label>B <input type="color" id="cb" /></label>
+      </div>
+      <label class="third"><input type="checkbox" id="use3" /> 3色目を間にはさむ(A→C→B)</label>
+      <div class="pick" id="c3row" hidden>
+        <label>C <input type="color" id="cc" /></label>
+        <span class="hint">灰色の真ん中を避けて外側を通すと、RGBでも濁らない</span>
+      </div>
+      <h2>お気に入り</h2>
+      <div id="favs" class="chips"></div>
+      <details>
+        <summary>しくみ</summary>
+        <p><b>RGB直線</b>: 画面の赤緑青の数値をそのまま平均。青(0,0,255)と黄(255,255,0)の真ん中は(128,128,128)=灰色。補色どうしはRGB立方体の対角の向こう側にあるので、直線が真ん中の灰色の軸を通る。</p>
+        <p><b>Oklab</b>: 人の目に均等になるよう作った色空間(Ottosson 2020)で平均。明るさの落ち込みは減るが、補色の真ん中はやはり灰色寄り。</p>
+        <p><b>絵の具式</b>: 色を光の波長ごとの反射率(38本)に直し、Kubelka-Munk理論で「光を吸う量÷散らす量」を混ぜる。青の絵の具と黄の絵の具はどちらも緑の光を少しずつ返すので、まぜると緑になる。<a href="https://github.com/rvanwijnen/spectral.js" target="_blank" rel="noopener">spectral.js</a>(MIT)を使用。</p>
+        <p><b>C</b> = Oklch の彩度(あざやかさ)。0 は灰色。</p>
+      </details>
+    </aside>
+  </div>
+  <div id="toast"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
