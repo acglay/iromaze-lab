@@ -14,8 +14,9 @@
       <header>
         <a id="home" class="home" href="https://hub-ashy-delta.vercel.app" hidden>🏠</a>
         <h1>🎨 いろまぜラボ</h1>
-        <span class="sub">同じ色を3通りでまぜて、にごり方をくらべる</span>
+        <span class="sub">同じ色をいろんな色空間でまぜて、画面・部屋・目で見え方をくらべる</span>
       </header>
+      <p class="hint" id="pipeinfo"></p>
       <section id="bands"></section>
       <section class="cube">
         <div class="cubehead">
@@ -49,6 +50,30 @@
         <span class="seg2" id="carc" title="自動: 明るさと鮮やかさは両はしの平均、色相は色相環の近い側/反対側の真ん中"><button data-arc="near">近回り</button><button data-arc="far">遠回り</button></span>
         <span class="hint">灰色の真ん中を避けて外側を通すと、RGBでも濁らない。近回り/遠回り=自動、Cを選ぶと手動</span>
       </div>
+      <h2>混ぜ方(色空間) <span class="hint">押して出し入れ</span></h2>
+      <div id="methods" class="chips"></div>
+
+      <h2>作業色域 <span class="hint">色の数値をこの色域の原色で読む(#ff0000=その色域の赤)</span></h2>
+      <span class="seg2" id="gamut"></span>
+      <details class="adv">
+        <summary>HDRの明るさ(SDRの白=203nitの何倍)</summary>
+        <div id="krows"></div>
+      </details>
+
+      <h2>出力デバイス(エミュレーション)</h2>
+      <select id="device"></select>
+      <div class="opt"><span>色域からはみ出し</span><span class="seg2" id="gm"></span></div>
+      <div class="opt"><span>明るさの上限超え</span><span class="seg2" id="tm"></span></div>
+      <p class="hint">帯の下の線: <b style="color:#ff3df2">赤紫</b>=デバイスの色域の外 / <b style="color:#ffd400">黄</b>=明るさの上限を超えた / <b style="color:#ff8a3d">橙</b>=両方</p>
+
+      <h2>見る人・見る場所</h2>
+      <div class="opt"><span>色覚</span><select id="cvd"></select></div>
+      <div class="opt"><span>まわりの光</span><span class="seg2" id="env"></span></div>
+
+      <h2>この画面</h2>
+      <p class="hint" id="screeninfo"></p>
+      <div class="opt"><span>出し方</span><span class="seg2" id="scr"></span></div>
+
       <h2>お気に入り</h2>
       <div id="favs" class="chips"></div>
       <details>
@@ -56,6 +81,11 @@
         <p><b>RGB直線</b>: 画面の赤緑青の数値をそのまま平均。青(0,0,255)と黄(255,255,0)の真ん中は(128,128,128)=灰色。補色どうしはRGB立方体の対角の向こう側にあるので、直線が真ん中の灰色の軸を通る。</p>
         <p><b>Oklab</b>: 人の目に均等になるよう作った色空間(Ottosson 2020)で平均。明るさの落ち込みは減るが、補色の真ん中はやはり灰色寄り。</p>
         <p><b>絵の具式</b>: 色を光の波長ごとの反射率(38本)に直し、Kubelka-Munk理論で「光を吸う量÷散らす量」を混ぜる。青の絵の具と黄の絵の具はどちらも緑の光を少しずつ返すので、まぜると緑になる。<a href="https://github.com/rvanwijnen/spectral.js" target="_blank" rel="noopener">spectral.js</a>(MIT)を使用。</p>
+        <p><b>ほかの色空間</b>: 線形RGB=光の量の足し算(プロジェクタ2台を重ねた色。XYZで混ぜても同じ)。HSL=色相をぐるっと回るので彩度が保たれるが明るさが暴れる。CIELAB/LCh=1976年の知覚均等空間(青が紫にずれる癖)。Oklch=Oklabの極座標で、色相を回るので濁らない。ICtCp/Jzazbz=PQ(明るさの知覚)を土台にしたHDR向け空間で、明るい色どうしでも均等に混ざる。</p>
+        <p><b>作業色域</b>: sRGB(ふつうのモニタ)⊂ Display P3(iPhone・Mac・多くのスマホ)⊂ Rec.2020(HDRテレビの規格)。同じ #00ff00 でも色域が広いほど鮮やかな緑になる。</p>
+        <p><b>出力デバイス</b>: 作った色を、そのデバイスが出せる範囲に収めた結果を再現する。「切りとる」はRGBの各チャンネルを切る(色相がずれやすい)、「彩度を下げる」はOklchで色相と明るさを保つ。HDRの明るさは「なめらかに圧縮」で上限の手前から寝かせる。</p>
+        <p><b>見る人・見る場所</b>: 色覚は Machado ら(2009)の行列で P型・D型・T型(重さ100%)を再現。まわりの光は画面に映り込んだ光を足し算する(屋外の日なたでは黒が白の15%まで浮く)。</p>
+        <p><b>この画面</b>: P3対応の画面なら display-p3 で、HDR対応の画面(+WebGPU)なら 1 を超える明るさのまま出す。SDRの画面でHDRデバイスを再現するときは、上限が画面の白になるよう全体を暗くして見せる。</p>
         <p><b>C</b> = Oklch の彩度(あざやかさ)。0 は灰色。<b>最小C</b> = 帯の中でいちばん濁ったところ。右の%は 最小C ÷ 両はしの平均C。上の段=中間色なし、下の段=中間色あり。</p>
       </details>
     </aside>

@@ -1,20 +1,30 @@
 # いろまぜラボ(iromaze-lab)
 
-同じ2色(または3色)を「RGB直線補間」「Oklab」「絵の具式」の3通りで混ぜて並べ、RGBだと補色の中間が灰色に濁る理由を目で比べるおもちゃ。
+同じ2色(または3色)を10種類の色空間で混ぜて並べ、RGBだと補色の中間が灰色に濁る理由を目で比べるおもちゃ。M1で作業色域(sRGB/P3/Rec.2020)・HDRの明るさ・出力デバイスのエミュレーション・色覚と映り込みの再現・この画面のP3/HDR出力を追加。
 
 - 公開: https://iromaze-lab.vercel.app (hub登録済み・tags: shape)
 - 着想: ひきだし C区分 x:2109512644965105802(RGB立方体の中心=灰色を通るから濁る/3色目で外側を通す)、x:2109594988195778951(LAB/Oklabで混ぜる)
-- 状態: M0(2026-10-21)
+- 状態: M1(2026-10-22)
 
 ## スタック
 素のHTML + ESモジュール。ビルド無し。Vercelは静的配信(Framework: Other)。
-- `index.html` / `style.css` / `app.js`(UI・帯・3D図)/ `color.js`(変換と3方式の混色。Nodeの検算でも同じものを使う)
-- `vendor/spectral.js` = spectral.js 3.0.0(MIT, Ronald van Wijnen)。UMD。`vendor/package.json` で CommonJS 扱いにしている(ルートが `type: module` のため)
+- `color.js` = 変換と混色(内部表現は **XYZ D65・SDRの白=Y 1.0=203nit**、HDRは1超え)。作業色域3種・Oklab/CIELAB/ICtCp/Jzazbz/HSL・PQ・`mixXYZ`/`mixPath`・`chromaReduce`/`clipTo`・`autoThird`。Nodeの検算でも同じものを使う
+- `device.js` = 出力デバイス(色域+最高輝度)・はみ出し処理・映り込み・色覚。順番は 明るさ上限→色域→映り込み→色覚
+- `present.js` = この画面への出力。P3画面は display-p3 の 2D canvas、HDR画面+WebGPUは `rgba16float`+`toneMapping:{mode:"extended"}`+display-p3(1を超える値をそのまま)。SDR画面でHDRデバイスを再現するときは上限を画面の白にして全体を縮める
+- `app.js` = UI・帯・3D図 / `vendor/spectral.js` = spectral.js 3.0.0(MIT)。`vendor/package.json` で CommonJS 扱い(ルートが `type: module` のため)
 
-## 3方式の定義
-- **RGB直線**: sRGB(ガンマ付き)の数値をそのまま線形補間。CSS・お絵かきソフトの既定と同じ。補色の中間は (128,128,128)。
-- **Oklab**: Ottosson 2020 の行列で sRGB→Oklab、線形補間、戻して線形RGBでクランプ。
-- **絵の具式**: spectral.js の `mix`。sRGB→線形RGB→7本の基底分光(W/C/M/Y/R/G/B, 38バンド)の和で反射率→単一定数Kubelka-Munk(K/S=(1-R)²/2R を濃度で平均→R=1+KS-√(KS²+2KS))→D65×CIE1931で XYZ→sRGB。濃度は spectral.js 既定どおり「係数²×着色力²×輝度」(暗い色ほど効きが弱い)。
+## 色空間と設定
+- 混ぜ方10種: RGB直線(作業色域のガンマ付き値)/線形RGB(=XYZで混ぜても同じ)/HSL/CIELAB/CIELCh/Oklab/Oklch/ICtCp(BT.2100 PQ)/Jzazbz(Safdar 2017)/絵の具式。極座標系は色相を近回り、片方が無彩色ならもう一方の色相
+- 作業色域: hex を「その色域の原色で読んだ値」とする(#ff0000=その色域の赤)。カラーピッカーと3色目チップの表示はsRGB扱いの近似
+- 出力デバイス: 理想/sRGBモニタ/P3スマホ/Rec.2020テレビ/HDRスマホ(P3・800nit)/HDR10テレビ(2020・1000nit)。色域=切りとる/彩度を下げる(Oklchで L・h 固定の二分探索)、明るさ=切りとる/なめらかに圧縮(上限の75%から指数ロールオフ)
+- 色覚: Machado 2009(重さ1.0)を線形sRGBにかける。2色型では青→黄の帯でも必ず無彩色を通る(見分けられる軸が1本になるため。不具合ではない)。まわりの光: 0/2%/15%をXYZに足す
+- 帯の下の線: 赤紫=デバイス色域外/黄=上限超え/橙=両方(divの背景グラデーション。canvasにするとsmokeが空の帯をblank判定する)
+- URLは既定値と違う設定だけ書く(g, dev, gm, tm, env, cvd, scr, m=方式列, ka/kb/kc=明るさ倍率)
+
+## 混色の細部
+- **RGB直線**: 作業色域のガンマ付き数値をそのまま線形補間。CSS・お絵かきソフトの既定と同じ。sRGBなら補色の中間は (128,128,128)。
+- **Oklab**: Ottosson 2020 の行列(線形sRGB経由、範囲外の値もそのまま通す)で補間。クランプは出力デバイス/画面の段で行う。
+- **絵の具式**: spectral.js の `mix`。sRGB→線形RGB→7本の基底分光(W/C/M/Y/R/G/B, 38バンド)の和で反射率→単一定数Kubelka-Munk(K/S=(1-R)²/2R を濃度で平均→R=1+KS-√(KS²+2KS))→D65×CIE1931で XYZ。反射なので入力は sRGB の0..1にクランプしてから混ぜる(広色域・HDRの色はsRGBの端に寄る)。濃度は spectral.js 既定どおり「係数²×着色力²×輝度」(暗い色ほど効きが弱い)。
 - **採用理由**: mixbox は非商用ライセンス(CC BY-NC)なので不採用。spectral.js は MIT で、基底分光+KM という依頼どおりの方式、青+黄が緑になる(検算5)。自前で基底分光を導出するよりデータの出典が明確。
 - 3色モードは A→C→B の折れ線(t<0.5 で A→C、以降 C→B)。真ん中=C になるので「最小C」も出す。
 - 3色目は既定で自動(`autoThird(a,b,arc)`): Oklch で L・C=両端の平均、色相=近回り(近い側の弧の中間)/遠回り(反対側)。片方が無彩色ならもう一方の色相(遠はその反対色)、両方無彩色なら暖色/寒色。sRGBに収まるまでCだけ下げる。AやBを変えると追従、Cを手で選ぶと手動。URLは `c=auto`(近)/`c=far`(遠)。
@@ -24,11 +34,12 @@
 
 ## Build, Test & Verify
 - `npm run dev` → http://localhost:5193(`scripts/serve.mjs`、依存なし)
-- `npm run check` → 物理の検算(白+白=白/同色どうし=その色/端点/補色の中間でRGBの彩度が落ちる/絵の具式で青+黄=緑/Oklab往復)。NGで exit 1
+- `npm run check` → 物理の検算(9空間の往復/白+白・同色/補色でRGBの彩度低下/青+黄=緑/自動3色目/色域の包含と白/PQ・ICtCp・Jzazbzの白/出力は必ずデバイス内・灰色は不変・圧縮は単調で上限以下/彩度を下げても色相不変/色覚で白は白・P型で赤緑の差が縮む/映り込みで黒が浮く)。NGで exit 1
+- HDR経路の確認: システムChrome(channel:"chrome", --enable-unsafe-webgpu --ignore-gpu-blocklist --use-angle=d3d11)で matchMedia を偽装し、帯の canvas の `_gpu` と getConfiguration().toneMapping を見る(1超えの明るさは実機でしか見えない)
 - `node Z:/Claude/_tools/smoke.mjs --app iromaze-lab "http://localhost:5193/#a=0000ff&b=ffff00&c=auto"`(URLハッシュで色を固定。c無しだと「あり」段が非表示=未描画でblank判定になる)
 - デプロイ: GitHub acglay/iromaze-lab に push → Vercel 自動デプロイ
 
-## 残課題(M0の外)
-- 混ぜる比率のスライダー(今は帯全体で見せるだけ)、絵の具の着色力(tintingStrength)調整
-- 線形RGB補間を4本目として出すか(物理的な光の足し算)
-- 3D図はCanvas 2Dの簡易投影。奥行きの前後関係は描き分けていない
+## 残課題
+- 混ぜる比率のスライダー、絵の具の着色力(tintingStrength)調整
+- 3D図はCanvas 2Dの簡易投影(奥行きの前後は描き分けない)。デバイスに通した後の経路は描いていない
+- HDR出力の明るさの見え方は実機(HDR画面)で未確認。Redmi 15 は SDR の想定

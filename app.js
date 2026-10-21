@@ -1,4 +1,6 @@
-import { METHODS, mixPath, hexToRgb, rgbToHex, rgbToOklab, oklch, autoThird } from "./color.js";
+import { SPACES, SPACE, GAMUTS, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, linToXYZ, xyzToOklab, oklch, autoThird, clipTo } from "./color.js";
+import { DEVICES, DEVICE, GAMUT_MAPS, TONE_MAPS, ENVS, CVDS, pipeline } from "./device.js";
+import { screen, initHdr, paintBand, paintFlags, cssColor } from "./present.js";
 
 const PRESET_GROUPS = [
   ["補色ペア", [
@@ -36,11 +38,18 @@ const PRESET_GROUPS = [
 const PRESETS = PRESET_GROUPS.flatMap(([, ps]) => ps);
 const DEFAULT = { ...PRESETS[0], name: "青×黄+近回り", use3: true, arc: "near" }; // 開いた直後は3色(自動・近回り)
 const FAV_KEY = "iromaze-lab-favs-v1";
-const PATH_COL = { rgb: "#ffffff", oklab: "#4fd1ff", paint: "#ffa94d" };
-const PATH_DASH = { rgb: [], oklab: [7, 5], paint: [2, 4] };
+const METHOD_COL = { rgb: "#ffffff", lin: "#9ad0ff", hsl: "#ff7ad9", lab: "#b6f36a", lch: "#6af3c0", oklab: "#4fd1ff", oklch: "#3d8bff", ictcp: "#ffe14d", jzazbz: "#ff8a4d", paint: "#ffa94d" };
+// 見え方の設定(リセットでは変えない「モード」)。URLには既定値と違うものだけ書く
+const MODE_DEFAULTS = { methods: ["rgb", "oklab", "paint"], gamut: "srgb", device: "ideal", gm: "chroma", tm: "rolloff", env: "dark", cvd: "none", scr: "auto" };
+const K_DEFAULT = 1;
 
 const $ = (id) => document.getElementById(id);
-const state = { a: DEFAULT.a, b: DEFAULT.b, c: "#00c070", cAuto: true, cArc: "near", use3: true, preset: DEFAULT, space: "rgb" };
+const state = {
+  a: DEFAULT.a, b: DEFAULT.b, c: "#00c070", cAuto: true, cArc: "near", use3: true, preset: DEFAULT, space: "rgb",
+  k: { a: K_DEFAULT, b: K_DEFAULT, c: K_DEFAULT },
+  ...structuredClone(MODE_DEFAULTS),
+};
+const opts = () => ({ device: state.device, gamut: state.gamut, gamutMap: state.gm, toneMap: state.tm, env: state.env, cvd: state.cvd });
 
 // ---- hub(🏠だけ。進捗は持たない)----
 {
@@ -52,7 +61,8 @@ const state = { a: DEFAULT.a, b: DEFAULT.b, c: "#00c070", cAuto: true, cArc: "ne
   if (localStorage.getItem("hub-token")) $("home").hidden = false;
 }
 
-// ---- URLハッシュ(#a=0000ff&b=ffff00&c=00c070) ----
+// ---- URLハッシュ(#a=0000ff&b=ffff00&c=auto&g=p3&dev=srgb …) ----
+const HASH_KEYS = { gamut: "g", device: "dev", gm: "gm", tm: "tm", env: "env", cvd: "cvd", scr: "scr" };
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   const hex = (v) => (v && /^[0-9a-f]{6}$/i.test(v) ? "#" + v.toLowerCase() : null);
@@ -63,20 +73,28 @@ function readHash() {
     state.cAuto = !hex(p.get("c"));
     state.cArc = p.get("c") === "far" ? "far" : "near";
     if (hex(p.get("c"))) state.c = hex(p.get("c"));
-    state.preset = { name: "URL", a: state.a, b: state.b, c: state.use3 && !state.cAuto ? state.c : undefined, use3: state.use3, arc: state.cArc };
+    for (const n of ["a", "b", "c"]) state.k[n] = Math.min(10, Math.max(0.05, Number(p.get("k" + n)) || K_DEFAULT));
+    state.preset = { name: "URL", a: state.a, b: state.b, c: state.use3 && !state.cAuto ? state.c : undefined, use3: state.use3, arc: state.cArc, k: { ...state.k } };
   }
+  for (const [key, h] of Object.entries(HASH_KEYS)) state[key] = p.get(h) || MODE_DEFAULTS[key];
+  const m = (p.get("m") || "").split(",").filter((id) => SPACE[id]);
+  state.methods = m.length ? m : [...MODE_DEFAULTS.methods];
 }
 function writeHash() {
-  const h = `a=${state.a.slice(1)}&b=${state.b.slice(1)}` + (state.use3 ? `&c=${state.cAuto ? (state.cArc === "far" ? "far" : "auto") : state.c.slice(1)}` : "");
+  let h = `a=${state.a.slice(1)}&b=${state.b.slice(1)}` + (state.use3 ? `&c=${state.cAuto ? (state.cArc === "far" ? "far" : "auto") : state.c.slice(1)}` : "");
+  for (const n of ["a", "b", "c"]) if (state.k[n] !== K_DEFAULT) h += `&k${n}=${state.k[n]}`;
+  for (const [key, k] of Object.entries(HASH_KEYS)) if (state[key] !== MODE_DEFAULTS[key]) h += `&${k}=${state[key]}`;
+  if (state.methods.join(",") !== MODE_DEFAULTS.methods.join(",")) h += `&m=${state.methods.join(",")}`;
   history.replaceState(null, "", "#" + h);
 }
 
-const cols = () => (state.use3 ? [state.a, state.b, state.c] : [state.a, state.b]).map(hexToRgb);
-// 比べる帯: 上=中間色なし(A→B)、下=中間色あり(A→C→B、3色モードのときだけ)
+// 入力色: hex を作業色域の原色で読み、明るさ倍率をかけた XYZ
+const colorXYZ = (n) => rgbToXYZ(state.gamut, hexToRgb(state[n])).map((v) => v * state.k[n]);
 const VARIANTS = [
-  { key: "2", label: "なし", cols: () => [state.a, state.b].map(hexToRgb) },
-  { key: "3", label: "あり", cols: () => [state.a, state.b, state.c].map(hexToRgb) },
+  { key: "2", label: "なし", cols: () => [colorXYZ("a"), colorXYZ("b")] },
+  { key: "3", label: "あり", cols: () => [colorXYZ("a"), colorXYZ("b"), colorXYZ("c")] },
 ];
+const activeVariants = () => (state.use3 ? VARIANTS : VARIANTS.slice(0, 1));
 
 function toast(msg) {
   const t = $("toast");
@@ -86,71 +104,72 @@ function toast(msg) {
   toast.tid = setTimeout(() => t.classList.remove("show"), 1600);
 }
 
-// ---- 方式ごとに「中間色なし/あり」の帯 ----
+// ---- 帯のデータ: 混ぜる → 出力デバイス → 見る人 ----
 const N = 96;
-function samples(fn, c) {
-  return Array.from({ length: N + 1 }, (_, i) => mixPath(fn, c, i / N));
+function rowData(spaceId, cols) {
+  const o = opts();
+  const raw = Array.from({ length: N + 1 }, (_, i) => mixPath(spaceId, cols, i / N, state.gamut));
+  const out = raw.map((x) => pipeline(x, o));
+  const seen = out.map((r) => r.xyz);
+  const Cs = seen.map((x) => oklch(x).C);
+  const ends = (Cs[0] + Cs[N]) / 2;
+  let min = Infinity;
+  for (const c of Cs) min = Math.min(min, c);
+  return { raw, seen, flags: out.map((r) => r.flags), mid: seen[N / 2], midC: Cs[N / 2], ends, min };
 }
-function chromaStats(fn, c) {
-  const mid = mixPath(fn, c, 0.5);
-  const ends = (oklch(c[0]).C + oklch(c[1]).C) / 2;
-  let min = Infinity, minT = 0;
-  for (let i = 0; i <= N; i++) {
-    const C = oklch(mixPath(fn, c, i / N)).C;
-    if (C < min) { min = C; minT = i / N; }
-  }
-  return { mid, midC: oklch(mid).C, midL: oklch(mid).L, ends, min, minT };
+// SDRの画面でHDRを見せるときの縮小率(デバイスの上限、理想なら入力の最大の明るさを画面の白に)
+function sdrScale() {
+  const dev = DEVICE[state.device];
+  const peak = isFinite(dev.peak) ? dev.peak : Math.max(1, ...["a", "b", "c"].map((n) => Math.max(...xyzToLin(state.gamut, colorXYZ(n)))));
+  return peak > 1.0001 ? 1 / peak : 1;
 }
+const useHdr = () => !!screen.gpu && state.scr === "auto";
 
 function buildBands() {
-  $("bands").innerHTML = METHODS.map(
-    (m) => `<div class="band" data-m="${m.id}">
-      <div class="bandhead"><b>${m.name}</b><small>${m.note}</small></div>
+  $("bands").innerHTML = state.methods.map((id) => {
+    const m = SPACE[id];
+    return `<div class="band" data-m="${id}">
+      <div class="bandhead"><b><span style="color:${METHOD_COL[id]}">■</span> ${m.name}</b><small>${m.note}</small></div>
       ${VARIANTS.map((v) => `<div class="vrow" data-v="${v.key}">
         <span class="vlabel">${v.label}</span>
         <div class="vbody">
-          <canvas></canvas>
+          <canvas class="bandcv"></canvas>
+          <div class="flags" title="赤紫=デバイスの色域の外 / 黄=明るさの上限を超えた / 橙=両方"></div>
           <div class="stats"><span class="sw"></span><span class="num txt"></span><span class="meter" title="いちばん濁ったところ(最小C)÷ 両はしの平均彩度"><i></i></span><span class="num pct"></span></div>
         </div>
       </div>`).join("")}
-    </div>`
-  ).join("");
-}
-
-function drawBand(cv, fn, c) {
-  const w = Math.max(1, Math.round(cv.clientWidth * devicePixelRatio));
-  const h = Math.max(1, Math.round(cv.clientHeight * devicePixelRatio));
-  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
-  const g = cv.getContext("2d");
-  const s = samples(fn, c);
-  for (let x = 0; x < w; x++) {
-    g.fillStyle = rgbToHex(s[Math.round((x / (w - 1)) * N)]);
-    g.fillRect(x, 0, 1, h);
-  }
-  g.fillStyle = "#000a";
-  g.fillRect(Math.round(w / 2) - 1, 0, 2, h * 0.18);
-  g.fillRect(Math.round(w / 2) - 1, h * 0.82, 2, h * 0.18);
+    </div>`;
+  }).join("");
 }
 
 function renderBands() {
-  for (const m of METHODS) {
+  const hdr = useHdr(), scale = hdr ? 1 : sdrScale();
+  for (const id of state.methods) {
     for (const v of VARIANTS) {
-      const el = document.querySelector(`.band[data-m="${m.id}"] .vrow[data-v="${v.key}"]`);
+      const el = document.querySelector(`.band[data-m="${id}"] .vrow[data-v="${v.key}"]`);
       el.hidden = v.key === "3" && !state.use3;
       if (el.hidden) continue;
-      const c = v.cols();
-      drawBand(el.querySelector("canvas"), m.fn, c);
-      const st = chromaStats(m.fn, c);
-      const ratio = st.ends > 1e-4 ? st.min / st.ends : 1;
-      el.querySelector(".sw").style.background = rgbToHex(st.mid);
-      el.querySelector(".sw").title = `真ん中 ${rgbToHex(st.mid)}`;
-      el.querySelector(".txt").textContent = `真ん中C=${st.midC.toFixed(3)} 最小C=${st.min.toFixed(3)}`;
+      const d = rowData(id, v.cols());
+      paintBand(el.querySelector(".bandcv"), d.seen, { hdr, scale });
+      paintFlags(el.querySelector(".flags"), d.flags);
+      const ratio = d.ends > 1e-4 ? d.min / d.ends : 1;
+      el.querySelector(".sw").style.background = cssColor(d.mid, scale);
+      el.querySelector(".sw").title = `真ん中(sRGB表記)${rgbToHex(xyzToRgb("srgb", d.mid))}`;
+      el.querySelector(".txt").textContent = `真ん中C=${d.midC.toFixed(3)} 最小C=${d.min.toFixed(3)}`;
       el.querySelector(".meter i").style.width = Math.min(100, ratio * 100) + "%";
-      el.querySelector(".pct").textContent = st.ends > 1e-4 ? `${Math.round(ratio * 100)}%` : "(両はし灰色)";
-      el.dataset.midc = st.midC.toFixed(4);
-      el.dataset.minc = st.min.toFixed(4);
+      el.querySelector(".pct").textContent = d.ends > 1e-4 ? `${Math.round(ratio * 100)}%` : "(灰色)";
+      el.dataset.midc = d.midC.toFixed(4);
+      el.dataset.minc = d.min.toFixed(4);
+      el.dataset.out = d.flags.filter((f) => f.outGamut || f.overPeak).length;
     }
   }
+  const dev = DEVICE[state.device];
+  const parts = [`作業色域 ${GAMUTS[state.gamut].name}`, `→ ${dev.name}`];
+  if (state.cvd !== "none") parts.push(`→ 色覚 ${CVDS.find((c) => c.id === state.cvd).name}`);
+  if (state.env !== "dark") parts.push(`→ ${ENVS.find((e) => e.id === state.env).name}`);
+  parts.push(`→ この画面(${hdr ? "HDR" : screen.p3 ? "P3" : "sRGB"})`);
+  if (scale < 1) parts.push(`※HDRを1/${(1 / scale).toFixed(1)}に暗くして表示`);
+  $("pipeinfo").textContent = parts.join(" ");
 }
 
 // ---- 3D図(Canvas 2D で回転投影)----
@@ -163,12 +182,23 @@ function project(p, w, h) {
   const s = Math.min(w, h) * 0.55 * (3 / (3 + z2));
   return [w / 2 + x1 * s, h / 2 - y1 * s, z2];
 }
-// RGB: 赤=x, 青=z, 緑=y を -0.5..0.5 に。Oklab: a=x, L=y, b=-z
-const toRgbSpace = (rgb) => [rgb[0] - 0.5, rgb[1] - 0.5, rgb[2] - 0.5];
-const toLabSpace = (rgb) => {
-  const [L, a, b] = rgbToOklab(rgb);
+// RGB: 作業色域の伝達関数つき値(赤=x, 緑=y, 青=z)を -0.5..0.5 に。Oklab: a=x, L=y, b=-z
+const toView = (xyz) => {
+  if (state.space === "rgb") return xyzToRgb(state.gamut, xyz).map((v) => v - 0.5);
+  const [L, a, b] = xyzToOklab(xyz);
   return [a * 2.2, L - 0.5, -b * 2.2];
 };
+const dotCol = (xyz) => rgbToHex(xyzToRgb("srgb", clipTo(xyz, "srgb")));
+// 色域(線形RGBの単位立方体)の12本の辺を XYZ の折れ線で
+function gamutEdges(g) {
+  const edges = [];
+  for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
+    const a = [i & 1, (i >> 1) & 1, (i >> 2) & 1], b = [j & 1, (j >> 1) & 1, (j >> 2) & 1];
+    if (a.reduce((s, v, k) => s + Math.abs(v - b[k]), 0) !== 1) continue;
+    edges.push(Array.from({ length: 13 }, (_, t) => linToXYZ(g, a.map((v, k) => v + (b[k] - v) * (t / 12)))));
+  }
+  return edges;
+}
 
 function renderCube() {
   const cv = $("cube");
@@ -178,63 +208,46 @@ function renderCube() {
   g.clearRect(0, 0, w, h);
   g.lineWidth = devicePixelRatio;
   const P = (p) => project(p, w, h);
-  const line = (a, b, color, dash = []) => {
-    const [x1, y1] = P(a), [x2, y2] = P(b);
-    g.strokeStyle = color; g.setLineDash(dash.map((d) => d * devicePixelRatio));
-    g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+  const poly = (pts, color, dash = [], width = 1) => {
+    g.strokeStyle = color; g.lineWidth = width * devicePixelRatio; g.setLineDash(dash.map((d) => d * devicePixelRatio));
+    g.beginPath();
+    pts.forEach((p, i) => { const [x, y] = P(p); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.stroke();
   };
   const dot = (p, color, r) => {
     const [x, y] = P(p);
     g.fillStyle = color; g.beginPath(); g.arc(x, y, r * devicePixelRatio, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = "#0008"; g.setLineDash([]); g.stroke();
+    g.strokeStyle = "#0008"; g.lineWidth = devicePixelRatio; g.setLineDash([]); g.stroke();
   };
-  const space = state.space === "rgb" ? toRgbSpace : toLabSpace;
-
-  if (state.space === "rgb") {
-    const corners = [];
-    for (let i = 0; i < 8; i++) corners.push([i & 1, (i >> 1) & 1, (i >> 2) & 1]);
-    for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
-      const d = corners[i].reduce((s, v, k) => s + Math.abs(v - corners[j][k]), 0);
-      if (d === 1) line(toRgbSpace(corners[i]), toRgbSpace(corners[j]), "#4a4d58");
-    }
-    line(toRgbSpace([0, 0, 0]), toRgbSpace([1, 1, 1]), "#999", [3, 3]);
-    for (const c of corners) dot(toRgbSpace(c), rgbToHex(c), 4);
-    $("cubehint").textContent = "灰色の点線=白と黒を結ぶ灰色の軸。補色を直線で結ぶと、ちょうどこの軸の真ん中(灰色)を突きぬける。ドラッグで回転。";
-  } else {
-    line([0, -0.5, 0], [0, 0.5, 0], "#999", [3, 3]);
-    // sRGB の外周(6色相の輪郭)を L に沿って描く
-    const rim = ["#ff0000", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#ff00ff", "#ff0000"].map(hexToRgb);
-    for (let i = 0; i < 6; i++) for (let k = 0; k < 8; k++) {
-      const a = rim[i].map((v, j) => v + (rim[i + 1][j] - v) * (k / 8));
-      const b = rim[i].map((v, j) => v + (rim[i + 1][j] - v) * ((k + 1) / 8));
-      line(toLabSpace(a), toLabSpace(b), "#4a4d58");
-    }
-    for (const c of rim.slice(0, 6)) dot(toLabSpace(c), rgbToHex(c), 4);
-    dot(toLabSpace([1, 1, 1]), "#fff", 4);
-    dot(toLabSpace([0, 0, 0]), "#000", 4);
-    $("cubehint").textContent = "縦=明るさL、横の広がり=色み(a,b)。点線=灰色の軸、外の輪=あざやかな6色。中心に近いほど濁った色。";
-  }
+  // 作業色域(灰)と出力デバイスの色域(橙の破線)
+  for (const e of gamutEdges(state.gamut)) poly(e.map(toView), "#4a4d58");
+  const dev = DEVICE[state.device];
+  if (dev.gamut && dev.gamut !== state.gamut) for (const e of gamutEdges(dev.gamut)) poly(e.map(toView), "#c77a2e", [4, 3]);
+  poly([[0, 0, 0], linToXYZ(state.gamut, [1, 1, 1])].map(toView), "#999", [3, 3]);
+  for (let i = 1; i < 8; i++) { const c = linToXYZ(state.gamut, [i & 1, (i >> 1) & 1, (i >> 2) & 1]); dot(toView(c), dotCol(c), 4); }
+  dot(toView([0, 0, 0]), "#000", 4);
+  $("cubehint").textContent = (state.space === "rgb"
+    ? `${GAMUTS[state.gamut].name}の数値の立方体。点線=灰色の軸、補色を直線で結ぶとこの軸を突きぬける。`
+    : "縦=明るさL、横=色み(a,b)。点線=灰色の軸、中心に近いほど濁った色。") +
+    (dev.gamut && dev.gamut !== state.gamut ? ` 橙の破線=${dev.name}が出せる範囲。` : "") + " ドラッグで回転。";
   // 3色モードでは「中間色なし」の通り道を薄く重ねる
   const layers = state.use3 ? [[VARIANTS[0].cols(), 0.3], [VARIANTS[1].cols(), 1]] : [[VARIANTS[0].cols(), 1]];
   for (const [c, alpha] of layers) {
     g.globalAlpha = alpha;
-    for (const m of METHODS) {
-      const s = samples(m.fn, c).filter((_, i) => i % 3 === 0 || i === N);
-      for (let i = 0; i < s.length - 1; i++) line(space(s[i]), space(s[i + 1]), PATH_COL[m.id], PATH_DASH[m.id]);
-      const mid = mixPath(m.fn, c, 0.5);
-      dot(space(mid), rgbToHex(mid), 6);
+    for (const id of state.methods) {
+      const s = Array.from({ length: 33 }, (_, i) => mixPath(id, c, i / 32, state.gamut));
+      poly(s.map(toView), METHOD_COL[id], [], 1.5);
+      dot(toView(s[16]), dotCol(s[16]), 5);
     }
   }
   g.globalAlpha = 1;
-  for (const c of cols()) dot(space(c), rgbToHex(c), 7);
-  // 凡例
+  for (const c of activeVariants().at(-1).cols()) dot(toView(c), dotCol(c), 7);
   g.setLineDash([]);
-  g.font = `${12 * devicePixelRatio}px system-ui`;
-  METHODS.forEach((m, i) => {
-    const y = (16 + i * 16) * devicePixelRatio;
-    g.strokeStyle = PATH_COL[m.id]; g.setLineDash(PATH_DASH[m.id].map((d) => d * devicePixelRatio));
-    g.beginPath(); g.moveTo(8 * devicePixelRatio, y - 4 * devicePixelRatio); g.lineTo(34 * devicePixelRatio, y - 4 * devicePixelRatio); g.stroke();
-    g.fillStyle = "#ddd"; g.fillText(m.name, 40 * devicePixelRatio, y);
+  g.font = `${11 * devicePixelRatio}px system-ui`;
+  state.methods.forEach((id, i) => {
+    const y = (14 + i * 14) * devicePixelRatio;
+    g.fillStyle = METHOD_COL[id]; g.fillRect(8 * devicePixelRatio, y - 7 * devicePixelRatio, 16 * devicePixelRatio, 3 * devicePixelRatio);
+    g.fillStyle = "#ddd"; g.fillText(SPACE[id].name, 28 * devicePixelRatio, y);
   });
 }
 {
@@ -273,6 +286,7 @@ function chip(label, colors, onClick, onDelete) {
   }
   return b;
 }
+// 色(色の数値+明るさ)だけを入れかえる。見え方の設定(色域・デバイス等)はお気に入り由来のときだけ
 function applyPreset(p) {
   state.preset = p;
   state.a = p.a; state.b = p.b;
@@ -280,8 +294,11 @@ function applyPreset(p) {
   state.cAuto = !p.c;
   state.cArc = p.arc === "far" ? "far" : "near";
   if (p.c) state.c = p.c;
-  syncInputs(); update();
+  state.k = { ...{ a: K_DEFAULT, b: K_DEFAULT, c: K_DEFAULT }, ...(p.k || {}) };
+  if (p.mode) Object.assign(state, structuredClone(p.mode));
+  syncInputs(); rebuild();
 }
+const autoHex = (a, b, arc) => rgbToHex(xyzToRgb(state.gamut, autoThird(rgbToXYZ(state.gamut, hexToRgb(a)), rgbToXYZ(state.gamut, hexToRgb(b)), arc, state.gamut)));
 function renderPresets() {
   const box = $("presets");
   box.innerHTML = "";
@@ -295,7 +312,7 @@ function renderPresets() {
       row.className = "prow";
       row.appendChild(chip(p.name, [p.a, p.b], () => applyPreset(p)));
       for (const [arc, label] of [["near", "近回り"], ["far", "遠回り"]]) {
-        const c = rgbToHex(autoThird(hexToRgb(p.a), hexToRgb(p.b), arc));
+        const c = autoHex(p.a, p.b, arc);
         const v = { name: `${p.name}+${label}`, a: p.a, b: p.b, use3: true, arc };
         const el = chip(label, [p.a, c, p.b], () => applyPreset(v));
         el.classList.add("mini");
@@ -311,7 +328,7 @@ function renderFavs() {
   const box = $("favs");
   box.innerHTML = "";
   const favs = loadFavs();
-  if (!favs.length) box.innerHTML = '<span class="hint">☆で今の組み合わせを保存</span>';
+  if (!favs.length) box.innerHTML = '<span class="hint">☆で今の組み合わせを保存(色域・デバイス等の設定も)</span>';
   favs.forEach((f, i) =>
     box.appendChild(chip(f.name, [f.a, f.b, f.c].filter(Boolean), () => applyPreset(f), () => {
       if (!confirm(`「${f.name}」を消しますか?`)) return;
@@ -320,16 +337,90 @@ function renderFavs() {
     }))
   );
 }
+
+// 選択ボタン群(作業色域・はみ出し処理・環境・画面)
+function segment(id, items, key, after) {
+  const box = $(id);
+  box.innerHTML = "";
+  for (const it of items) {
+    const b = document.createElement("button");
+    b.textContent = it.name; b.dataset.v = it.id;
+    if (it.note) b.title = it.note;
+    b.addEventListener("click", () => { state[key] = it.id; after?.(); syncInputs(); rebuild(); });
+    box.appendChild(b);
+  }
+}
+function select(id, items, key) {
+  const el = $(id);
+  el.innerHTML = items.map((it) => `<option value="${it.id}">${it.name}</option>`).join("");
+  el.addEventListener("change", () => { state[key] = el.value; syncInputs(); rebuild(); });
+}
+function renderMethods() {
+  const box = $("methods");
+  box.innerHTML = "";
+  for (const sp of SPACES) {
+    const b = chip(sp.name, [METHOD_COL[sp.id]], () => {
+      const on = state.methods.includes(sp.id);
+      if (on && state.methods.length === 1) return toast("1つは残してください");
+      state.methods = on ? state.methods.filter((x) => x !== sp.id) : SPACES.map((s) => s.id).filter((x) => x === sp.id || state.methods.includes(x));
+      syncInputs(); rebuild();
+    });
+    b.dataset.m = sp.id; b.title = sp.note;
+    box.appendChild(b);
+  }
+}
+// 明るさスライダー(名前 / range / 値 / 個別↺)。対数で 0.1〜10 倍
+function renderKRows() {
+  $("krows").innerHTML = ["a", "b", "c"].map((n) => `<div class="row" data-k="${n}">
+    <span class="slabel" title="${n.toUpperCase()} の明るさ(SDRの白=1)">${n.toUpperCase()} の明るさ</span>
+    <input type="range" min="-1" max="1" step="0.01" />
+    <span class="sval"></span><button class="rs" title="1倍に戻す">↺</button></div>`).join("");
+  document.querySelectorAll("#krows .row").forEach((row) => {
+    const n = row.dataset.k;
+    row.querySelector("input").addEventListener("input", (e) => {
+      state.k[n] = Math.round(10 ** Number(e.target.value) * 100) / 100;
+      if (n === "c") state.cAuto = false;
+      syncInputs(); update();
+    });
+    row.querySelector(".rs").addEventListener("click", () => { state.k[n] = K_DEFAULT; syncInputs(); update(); });
+  });
+}
+
 function syncInputs() {
-  if (state.cAuto) state.c = rgbToHex(autoThird(hexToRgb(state.a), hexToRgb(state.b), state.cArc));
+  if (state.cAuto) {
+    state.c = autoHex(state.a, state.b, state.cArc);
+    state.k.c = Math.round(((state.k.a + state.k.b) / 2) * 100) / 100;
+  }
   document.querySelectorAll("#carc button").forEach((b) => b.classList.toggle("on", state.cAuto && b.dataset.arc === state.cArc));
   $("ca").value = state.a; $("cb").value = state.b; $("cc").value = state.c;
   $("use3").checked = state.use3; $("c3row").hidden = !state.use3;
+  for (const [id, key] of [["gamut", "gamut"], ["gm", "gm"], ["tm", "tm"], ["env", "env"], ["scr", "scr"]])
+    document.querySelectorAll(`#${id} button`).forEach((b) => b.classList.toggle("on", b.dataset.v === state[key]));
+  $("device").value = state.device; $("cvd").value = state.cvd;
+  document.querySelectorAll("#methods .chip").forEach((b) => b.classList.toggle("off", !state.methods.includes(b.dataset.m)));
+  document.querySelectorAll("#krows .row").forEach((row) => {
+    const k = state.k[row.dataset.k];
+    row.querySelector("input").value = Math.log10(k);
+    row.querySelector(".sval").textContent = `×${k.toFixed(2)} ${Math.round(k * 203)}nit`;
+    row.querySelector(".rs").classList.toggle("show", k !== K_DEFAULT);
+  });
+  $("screeninfo").textContent =
+    `色域 ${screen.p3 ? "P3以上" : "sRGB"} / ${screen.hdr ? "HDR対応" : "SDR"}` +
+    (screen.hdr ? (screen.gpu ? "(WebGPUで1を超える明るさを出せる)" : "(WebGPUのHDR出力が使えないのでSDRで再現)") : "") +
+    "。この画面より広い色・明るい色は、画面側で切られて見える。";
 }
 function update() {
   writeHash();
   renderBands();
   renderCube();
+}
+// 方式の数や画面の出し方が変わったら帯を作り直す(WebGPU と 2D の canvas は使い回せない)
+let builtKey = "";
+function rebuild() {
+  const key = state.methods.join(",") + "|" + useHdr();
+  if (key !== builtKey) { buildBands(); builtKey = key; }
+  renderPresets();
+  update();
 }
 
 $("ca").addEventListener("input", (e) => { state.a = e.target.value; syncInputs(); update(); });
@@ -342,35 +433,42 @@ document.querySelectorAll("#carc button").forEach((b) =>
   })
 );
 $("use3").addEventListener("change", (e) => { state.use3 = e.target.checked; syncInputs(); update(); });
-$("swap").addEventListener("click", () => { [state.a, state.b] = [state.b, state.a]; syncInputs(); update(); });
-$("reset").addEventListener("click", () => { applyPreset(state.preset); toast(`「${state.preset.name}」の色に戻しました`); });
+$("swap").addEventListener("click", () => { [state.a, state.b] = [state.b, state.a]; [state.k.a, state.k.b] = [state.k.b, state.k.a]; syncInputs(); update(); });
+$("reset").addEventListener("click", () => { applyPreset({ ...state.preset, mode: undefined }); toast(`「${state.preset.name}」の色に戻しました`); });
 $("fav").addEventListener("click", () => {
   const def = state.preset.name === "URL" ? "おきにいり" : state.preset.name;
   const name = prompt("名前をつけて保存", def);
   if (name === null) return;
   const all = loadFavs();
-  all.push({ name: name.trim() || def, a: state.a, b: state.b, c: state.use3 && !state.cAuto ? state.c : undefined, use3: state.use3, arc: state.cArc });
+  const mode = Object.fromEntries(Object.keys(MODE_DEFAULTS).map((k) => [k, structuredClone(state[k])]));
+  all.push({ name: name.trim() || def, a: state.a, b: state.b, c: state.use3 && !state.cAuto ? state.c : undefined, use3: state.use3, arc: state.cArc, k: { ...state.k }, mode });
   localStorage.setItem(FAV_KEY, JSON.stringify(all));
   renderFavs(); toast("保存しました");
 });
 $("shot").addEventListener("click", () => {
-  const W = 960, BH = 60, vs = state.use3 ? VARIANTS : VARIANTS.slice(0, 1), RH = 30 + vs.length * (BH + 22);
+  const W = 960, BH = 50, vs = activeVariants(), RH = 28 + vs.length * (BH + 22);
   const cv = document.createElement("canvas");
-  cv.width = W; cv.height = 40 + METHODS.length * RH;
+  cv.width = W; cv.height = 64 + state.methods.length * RH;
   const g = cv.getContext("2d");
+  const scale = sdrScale();
   g.fillStyle = "#16171b"; g.fillRect(0, 0, cv.width, cv.height);
   g.fillStyle = "#e8e8ea"; g.font = "20px system-ui";
   g.fillText(`いろまぜラボ  ${state.a} → ${state.use3 ? state.c + " → " : ""}${state.b}`, 16, 28);
-  METHODS.forEach((m, k) => {
-    const y0 = 40 + k * RH;
-    g.fillStyle = "#e8e8ea"; g.font = "bold 17px system-ui";
-    g.fillText(m.name, 16, y0 + 22);
+  g.font = "14px system-ui"; g.fillStyle = "#9ea3b0";
+  g.fillText($("pipeinfo").textContent + "(PNGはsRGB)", 16, 50);
+  state.methods.forEach((id, k) => {
+    const y0 = 64 + k * RH;
+    g.fillStyle = "#e8e8ea"; g.font = "bold 16px system-ui";
+    g.fillText(SPACE[id].name, 16, y0 + 18);
     vs.forEach((v, j) => {
-      const y = y0 + 30 + j * (BH + 22);
-      const c = v.cols(), s = samples(m.fn, c), st = chromaStats(m.fn, c);
-      g.fillStyle = "#c8cad0"; g.font = "14px system-ui";
-      g.fillText(`中間色${v.label}   真ん中 ${rgbToHex(st.mid)}  C=${st.midC.toFixed(3)}  最小C=${st.min.toFixed(3)}`, 16, y + 14);
-      for (let x = 0; x < W - 32; x++) { g.fillStyle = rgbToHex(s[Math.round((x / (W - 33)) * N)]); g.fillRect(16 + x, y + 20, 1, BH); }
+      const y = y0 + 26 + j * (BH + 22);
+      const d = rowData(id, v.cols());
+      g.fillStyle = "#c8cad0"; g.font = "13px system-ui";
+      g.fillText(`中間色${v.label}   真ん中C=${d.midC.toFixed(3)}  最小C=${d.min.toFixed(3)}`, 16, y + 13);
+      for (let x = 0; x < W - 32; x++) {
+        const c = d.seen[Math.round((x / (W - 33)) * N)].map((q) => q * scale);
+        g.fillStyle = rgbToHex(xyzToRgb("srgb", clipTo(c, "srgb"))); g.fillRect(16 + x, y + 18, 1, BH);
+      }
     });
   });
   const a = document.createElement("a");
@@ -379,11 +477,19 @@ $("shot").addEventListener("click", () => {
   document.body.appendChild(a); a.click(); a.remove();
 });
 
+segment("gamut", Object.values(GAMUTS), "gamut");
+segment("gm", GAMUT_MAPS, "gm");
+segment("tm", TONE_MAPS, "tm");
+segment("env", ENVS, "env");
+segment("scr", [{ id: "auto", name: "この画面の力で", note: "P3・HDRに対応していればそのまま出す" }, { id: "sdr", name: "SDRで再現", note: "HDRでも、上限を白にして暗く縮めて見せる" }], "scr");
+select("device", DEVICES, "device");
+select("cvd", CVDS, "cvd");
+renderMethods();
+renderKRows();
 readHash();
-buildBands();
-renderPresets();
 renderFavs();
 syncInputs();
-update();
-addEventListener("hashchange", () => { readHash(); syncInputs(); update(); });
+rebuild();
+addEventListener("hashchange", () => { readHash(); syncInputs(); rebuild(); });
 new ResizeObserver(() => { renderBands(); renderCube(); }).observe($("bands"));
+initHdr().then((ok) => { if (ok) { syncInputs(); rebuild(); } });

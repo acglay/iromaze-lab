@@ -57,3 +57,15 @@ details { margin-top: 14px; font-size: 13px; line-height: 1.6; color: #c8cad0; }
 details a { color: #8ab4ff; }
 #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #000c; padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
 #toast.show { opacity: 1; }
+.opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; font-size: 13px; }
+select { font: inherit; color: inherit; background: #2a2c33; border: 1px solid #3a3d46; border-radius: 8px; padding: 5px 6px; max-width: 100%; }
+.seg2 { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.chip.off { opacity: 0.45; }
+.flags { height: 4px; margin: -1px 0 3px; border-radius: 2px; }
+.row { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 6px 0; }
+.row .slabel { width: 4.5em; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row input[type="range"] { flex: 1; min-width: 0; }
+.row .sval { width: 6.5em; text-align: right; font-variant-numeric: tabular-nums; }
+.row .rs { padding: 0 6px; font-size: 12px; visibility: hidden; }
+.row .rs.show { visibility: visible; }
+#pipeinfo { margin: 0 0 6px; }
