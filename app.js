@@ -1,21 +1,52 @@
-import { METHODS, mixPath, hexToRgb, rgbToHex, rgbToOklab, oklch } from "./color.js";
+import { METHODS, mixPath, hexToRgb, rgbToHex, rgbToOklab, oklch, autoThird } from "./color.js";
 
-const PRESETS = [
-  { name: "青×黄", a: "#0000ff", b: "#ffff00" },
-  { name: "赤×シアン", a: "#ff0000", b: "#00ffff" },
-  { name: "緑×マゼンタ", a: "#00ff00", b: "#ff00ff" },
-  { name: "群青×山吹", a: "#1e3a8a", b: "#f2b01e" },
-  { name: "赤×緑", a: "#e02020", b: "#20a040" },
-  { name: "白×黒", a: "#ffffff", b: "#000000" },
-  { name: "青×黄+緑で回り道", a: "#0000ff", b: "#ffff00", c: "#00c070" },
+const PRESET_GROUPS = [
+  ["補色ペア", [
+    { name: "青×黄", a: "#0000ff", b: "#ffff00" },
+    { name: "赤×シアン", a: "#ff0000", b: "#00ffff" },
+    { name: "緑×マゼンタ", a: "#00ff00", b: "#ff00ff" },
+    { name: "橙×青", a: "#ff8000", b: "#0060ff" },
+    { name: "紫×黄緑", a: "#8000ff", b: "#80ff00" },
+    { name: "赤×緑", a: "#e02020", b: "#20a040" },
+  ]],
+  ["絵の具の定番", [
+    { name: "群青×山吹", a: "#1e3a8a", b: "#f2b01e" },
+    { name: "紺×レモン", a: "#16235c", b: "#fff44f" },
+    { name: "赤×青", a: "#d42020", b: "#1f3fbf" },
+    { name: "黄×赤", a: "#ffd400", b: "#d42020" },
+    { name: "朱×白", a: "#e8452c", b: "#ffffff" },
+    { name: "黒×黄", a: "#111111", b: "#ffe000" },
+    { name: "緑×赤茶", a: "#2e8b57", b: "#a0442a" },
+  ]],
+  ["自然の色", [
+    { name: "夕焼け", a: "#ff5e3a", b: "#2a2a72" },
+    { name: "空と砂", a: "#6ec6ff", b: "#e8c48a" },
+    { name: "若葉×桜", a: "#8bc34a", b: "#f6a5c0" },
+    { name: "紅葉", a: "#c0392b", b: "#f1c40f" },
+    { name: "海と珊瑚", a: "#0b6fa4", b: "#ff7f6a" },
+    { name: "ラベンダー×麦", a: "#9a7fd1", b: "#e3c76b" },
+  ]],
+  ["明るさ", [
+    { name: "白×黒", a: "#ffffff", b: "#000000" },
+    { name: "白×赤", a: "#ffffff", b: "#ff0000" },
+    { name: "黒×シアン", a: "#000000", b: "#00ffff" },
+    { name: "白×青", a: "#ffffff", b: "#0000ff" },
+  ]],
+  ["3色で回り道", [
+    { name: "青×黄+緑", a: "#0000ff", b: "#ffff00", c: "#00c070" },
+    { name: "青×黄+赤(逆回り)", a: "#0000ff", b: "#ffff00", c: "#ff2050" },
+    { name: "赤×シアン+紫", a: "#ff0000", b: "#00ffff", c: "#8040ff" },
+    { name: "緑×マゼンタ+黄", a: "#00ff00", b: "#ff00ff", c: "#ffd000" },
+  ]],
 ];
+const PRESETS = PRESET_GROUPS.flatMap(([, ps]) => ps);
 const DEFAULT = PRESETS[0];
 const FAV_KEY = "iromaze-lab-favs-v1";
 const PATH_COL = { rgb: "#ffffff", oklab: "#4fd1ff", paint: "#ffa94d" };
 const PATH_DASH = { rgb: [], oklab: [7, 5], paint: [2, 4] };
 
 const $ = (id) => document.getElementById(id);
-const state = { a: DEFAULT.a, b: DEFAULT.b, c: "#00c070", use3: false, preset: DEFAULT, space: "rgb" };
+const state = { a: DEFAULT.a, b: DEFAULT.b, c: "#00c070", cAuto: true, use3: false, preset: DEFAULT, space: "rgb" };
 
 // ---- hub(🏠だけ。進捗は持たない)----
 {
@@ -34,13 +65,14 @@ function readHash() {
   if (hex(p.get("a")) && hex(p.get("b"))) {
     state.a = hex(p.get("a"));
     state.b = hex(p.get("b"));
-    state.use3 = !!hex(p.get("c"));
-    if (state.use3) state.c = hex(p.get("c"));
-    state.preset = { name: "URL", a: state.a, b: state.b, c: state.use3 ? state.c : undefined };
+    state.use3 = !!hex(p.get("c")) || p.get("c") === "auto";
+    state.cAuto = !hex(p.get("c"));
+    if (hex(p.get("c"))) state.c = hex(p.get("c"));
+    state.preset = { name: "URL", a: state.a, b: state.b, c: state.use3 && !state.cAuto ? state.c : undefined, use3: state.use3 };
   }
 }
 function writeHash() {
-  const h = `a=${state.a.slice(1)}&b=${state.b.slice(1)}` + (state.use3 ? `&c=${state.c.slice(1)}` : "");
+  const h = `a=${state.a.slice(1)}&b=${state.b.slice(1)}` + (state.use3 ? `&c=${state.cAuto ? "auto" : state.c.slice(1)}` : "");
   history.replaceState(null, "", "#" + h);
 }
 
@@ -230,14 +262,20 @@ function chip(label, colors, onClick, onDelete) {
 function applyPreset(p) {
   state.preset = p;
   state.a = p.a; state.b = p.b;
-  state.use3 = !!p.c;
+  state.use3 = !!p.c || !!p.use3;
+  state.cAuto = !p.c;
   if (p.c) state.c = p.c;
   syncInputs(); update();
 }
 function renderPresets() {
   const box = $("presets");
   box.innerHTML = "";
-  for (const p of PRESETS) box.appendChild(chip(p.name, [p.a, p.b, p.c].filter(Boolean), () => applyPreset(p)));
+  for (const [group, ps] of PRESET_GROUPS) {
+    const h = document.createElement("div");
+    h.className = "group"; h.textContent = group;
+    box.appendChild(h);
+    for (const p of ps) box.appendChild(chip(p.name, [p.a, p.b, p.c].filter(Boolean), () => applyPreset(p)));
+  }
 }
 const loadFavs = () => { try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch { return []; } };
 function renderFavs() {
@@ -254,6 +292,9 @@ function renderFavs() {
   );
 }
 function syncInputs() {
+  if (state.cAuto) state.c = rgbToHex(autoThird(hexToRgb(state.a), hexToRgb(state.b)));
+  $("cauto").textContent = state.cAuto ? "自動" : "自動に戻す";
+  $("cauto").classList.toggle("on", state.cAuto);
   $("ca").value = state.a; $("cb").value = state.b; $("cc").value = state.c;
   $("use3").checked = state.use3; $("c3row").hidden = !state.use3;
 }
@@ -263,9 +304,10 @@ function update() {
   renderCube();
 }
 
-$("ca").addEventListener("input", (e) => { state.a = e.target.value; update(); });
-$("cb").addEventListener("input", (e) => { state.b = e.target.value; update(); });
-$("cc").addEventListener("input", (e) => { state.c = e.target.value; update(); });
+$("ca").addEventListener("input", (e) => { state.a = e.target.value; syncInputs(); update(); });
+$("cb").addEventListener("input", (e) => { state.b = e.target.value; syncInputs(); update(); });
+$("cc").addEventListener("input", (e) => { state.c = e.target.value; state.cAuto = false; syncInputs(); update(); });
+$("cauto").addEventListener("click", () => { state.cAuto = true; syncInputs(); update(); toast("3色目をAとBから自動で決めます"); });
 $("use3").addEventListener("change", (e) => { state.use3 = e.target.checked; syncInputs(); update(); });
 $("swap").addEventListener("click", () => { [state.a, state.b] = [state.b, state.a]; syncInputs(); update(); });
 $("reset").addEventListener("click", () => { applyPreset(state.preset); toast(`「${state.preset.name}」の色に戻しました`); });
@@ -274,7 +316,7 @@ $("fav").addEventListener("click", () => {
   const name = prompt("名前をつけて保存", def);
   if (name === null) return;
   const all = loadFavs();
-  all.push({ name: name.trim() || def, a: state.a, b: state.b, c: state.use3 ? state.c : undefined });
+  all.push({ name: name.trim() || def, a: state.a, b: state.b, c: state.use3 && !state.cAuto ? state.c : undefined, use3: state.use3 });
   localStorage.setItem(FAV_KEY, JSON.stringify(all));
   renderFavs(); toast("保存しました");
 });

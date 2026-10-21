@@ -36,6 +36,7 @@ h2 { font-size: 13px; color: #9ea3b0; margin: 12px 0 6px; }
 .actions { display: flex; gap: 8px; }
 .round { width: 40px; height: 40px; border-radius: 50%; padding: 0; font-size: 18px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.group { width: 100%; font-size: 11px; color: #7d8291; margin-top: 4px; }
 .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; padding: 4px 8px; }
 .chip .dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid #0006; }
 .chip .x { margin-left: 2px; color: #9ea3b0; }

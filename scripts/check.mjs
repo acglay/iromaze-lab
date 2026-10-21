@@ -60,6 +60,17 @@ for (const [name, a, b] of PAIRS) {
   ok(p.h > 100 && p.h < 180 && p.C > r.C, `絵の具式 青+黄=緑 (h=${p.h.toFixed(0)}° C=${p.C.toFixed(3)} > RGB ${r.C.toFixed(3)})`);
 }
 
+// 7. 自動の3色目: 補色ペアで RGB の最小彩度が 0.05 超に上がる/無彩色ペアは灰色のまま
+for (const [name, a, b] of PAIRS) {
+  const c = C.autoThird(H(a), H(b));
+  const minC = Math.min(...Array.from({ length: 97 }, (_, i) => C.oklch(C.mixPath(C.mixRgb, [H(a), H(b), c], i / 96)).C));
+  ok(minC > 0.05, `${name}: 自動3色目 ${C.rgbToHex(c)} でRGBの最小C=${minC.toFixed(3)} (>0.05)`);
+}
+{
+  const g = C.oklch(C.autoThird(H("#ffffff"), H("#000000")));
+  ok(g.C < 0.01, `白×黒: 自動3色目は灰色 (C=${g.C.toFixed(4)})`);
+}
+
 // 6. Oklab 往復
 {
   let worst = 0;

@@ -46,7 +46,8 @@
       <label class="third"><input type="checkbox" id="use3" /> 3色目を間にはさむ(A→C→B)</label>
       <div class="pick" id="c3row" hidden>
         <label>C <input type="color" id="cc" /></label>
-        <span class="hint">灰色の真ん中を避けて外側を通すと、RGBでも濁らない</span>
+        <button id="cauto" title="AとBの真ん中の明るさ・鮮やかさで、色相だけ近い側の中間にした色">自動</button>
+        <span class="hint">灰色の真ん中を避けて外側を通すと、RGBでも濁らない。自動=明るさと鮮やかさは両はしの平均、色相は近い側の中間</span>
       </div>
       <h2>お気に入り</h2>
       <div id="favs" class="chips"></div>

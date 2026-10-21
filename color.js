@@ -47,6 +47,42 @@ export function oklch(rgb) {
   return { L, C: Math.hypot(a, b), h };
 }
 
+// 2色から「灰色の真ん中を避ける」3色目を決める。Oklch で L・C は両端の平均、
+// 色相は近い側の弧の中間。sRGB に入らなければ C だけ下げて収める
+function oklabToLinRaw([L, a, b]) {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+  ];
+}
+export function autoThird(a, b) {
+  const A = oklch(a), B = oklch(b);
+  const L = (A.L + B.L) / 2;
+  let C = (A.C + B.C) / 2;
+  let h;
+  if (A.C < 0.02 && B.C < 0.02) return oklabToRgb([L, 0, 0]);
+  if (A.C < 0.02) h = B.h;
+  else if (B.C < 0.02) h = A.h;
+  else {
+    let d = B.h - A.h;
+    if (d > 180) d -= 360;
+    if (d < -180) d += 360;
+    h = A.h + d / 2;
+  }
+  const hr = (h * Math.PI) / 180;
+  const inGamut = (c) => oklabToLinRaw([L, c * Math.cos(hr), c * Math.sin(hr)]).every((v) => v >= -1e-4 && v <= 1 + 1e-4);
+  if (!inGamut(C)) {
+    let lo = 0, hi = C;
+    for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (inGamut(mid)) lo = mid; else hi = mid; }
+    C = lo;
+  }
+  return oklabToRgb([L, C * Math.cos(hr), C * Math.sin(hr)]);
+}
+
 // ---- 3通りの混色(t=0 で a、t=1 で b)----
 const lerp = (x, y, t) => x + (y - x) * t;
 
