@@ -72,6 +72,11 @@ function writeHash() {
 }
 
 const cols = () => (state.use3 ? [state.a, state.b, state.c] : [state.a, state.b]).map(hexToRgb);
+// 比べる帯: 上=中間色なし(A→B)、下=中間色あり(A→C→B、3色モードのときだけ)
+const VARIANTS = [
+  { key: "2", label: "なし", cols: () => [state.a, state.b].map(hexToRgb) },
+  { key: "3", label: "あり", cols: () => [state.a, state.b, state.c].map(hexToRgb) },
+];
 
 function toast(msg) {
   const t = $("toast");
@@ -81,14 +86,12 @@ function toast(msg) {
   toast.tid = setTimeout(() => t.classList.remove("show"), 1600);
 }
 
-// ---- 3本の帯 ----
+// ---- 方式ごとに「中間色なし/あり」の帯 ----
 const N = 96;
-function samples(fn) {
-  const c = cols();
+function samples(fn, c) {
   return Array.from({ length: N + 1 }, (_, i) => mixPath(fn, c, i / N));
 }
-function chromaStats(fn) {
-  const c = cols();
+function chromaStats(fn, c) {
   const mid = mixPath(fn, c, 0.5);
   const ends = (oklch(c[0]).C + oklch(c[1]).C) / 2;
   let min = Infinity, minT = 0;
@@ -103,18 +106,23 @@ function buildBands() {
   $("bands").innerHTML = METHODS.map(
     (m) => `<div class="band" data-m="${m.id}">
       <div class="bandhead"><b>${m.name}</b><small>${m.note}</small></div>
-      <canvas></canvas>
-      <div class="stats"><span class="sw"></span><span class="num txt"></span><span class="meter" title="真ん中の彩度 ÷ 両はしの平均彩度"><i></i></span><span class="num pct"></span></div>
+      ${VARIANTS.map((v) => `<div class="vrow" data-v="${v.key}">
+        <span class="vlabel">${v.label}</span>
+        <div class="vbody">
+          <canvas></canvas>
+          <div class="stats"><span class="sw"></span><span class="num txt"></span><span class="meter" title="いちばん濁ったところ(最小C)÷ 両はしの平均彩度"><i></i></span><span class="num pct"></span></div>
+        </div>
+      </div>`).join("")}
     </div>`
   ).join("");
 }
 
-function drawBand(cv, fn) {
+function drawBand(cv, fn, c) {
   const w = Math.max(1, Math.round(cv.clientWidth * devicePixelRatio));
   const h = Math.max(1, Math.round(cv.clientHeight * devicePixelRatio));
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
   const g = cv.getContext("2d");
-  const s = samples(fn);
+  const s = samples(fn, c);
   for (let x = 0; x < w; x++) {
     g.fillStyle = rgbToHex(s[Math.round((x / (w - 1)) * N)]);
     g.fillRect(x, 0, 1, h);
@@ -126,17 +134,22 @@ function drawBand(cv, fn) {
 
 function renderBands() {
   for (const m of METHODS) {
-    const el = document.querySelector(`.band[data-m="${m.id}"]`);
-    drawBand(el.querySelector("canvas"), m.fn);
-    const st = chromaStats(m.fn);
-    const ratio = st.ends > 1e-4 ? st.midC / st.ends : 1;
-    el.querySelector(".sw").style.background = rgbToHex(st.mid);
-    el.querySelector(".txt").textContent =
-      `真ん中 ${rgbToHex(st.mid)}  C=${st.midC.toFixed(3)}  L=${st.midL.toFixed(2)}` +
-      (state.use3 ? `  最小C=${st.min.toFixed(3)}` : "");
-    el.querySelector(".meter i").style.width = Math.min(100, ratio * 100) + "%";
-    el.querySelector(".pct").textContent = st.ends > 1e-4 ? `あざやかさ ${Math.round(ratio * 100)}%` : "(両はし灰色)";
-    el.dataset.midc = st.midC.toFixed(4);
+    for (const v of VARIANTS) {
+      const el = document.querySelector(`.band[data-m="${m.id}"] .vrow[data-v="${v.key}"]`);
+      el.hidden = v.key === "3" && !state.use3;
+      if (el.hidden) continue;
+      const c = v.cols();
+      drawBand(el.querySelector("canvas"), m.fn, c);
+      const st = chromaStats(m.fn, c);
+      const ratio = st.ends > 1e-4 ? st.min / st.ends : 1;
+      el.querySelector(".sw").style.background = rgbToHex(st.mid);
+      el.querySelector(".sw").title = `真ん中 ${rgbToHex(st.mid)}`;
+      el.querySelector(".txt").textContent = `真ん中C=${st.midC.toFixed(3)} 最小C=${st.min.toFixed(3)}`;
+      el.querySelector(".meter i").style.width = Math.min(100, ratio * 100) + "%";
+      el.querySelector(".pct").textContent = st.ends > 1e-4 ? `${Math.round(ratio * 100)}%` : "(両はし灰色)";
+      el.dataset.midc = st.midC.toFixed(4);
+      el.dataset.minc = st.min.toFixed(4);
+    }
   }
 }
 
@@ -201,12 +214,18 @@ function renderCube() {
     dot(toLabSpace([0, 0, 0]), "#000", 4);
     $("cubehint").textContent = "縦=明るさL、横の広がり=色み(a,b)。点線=灰色の軸、外の輪=あざやかな6色。中心に近いほど濁った色。";
   }
-  for (const m of METHODS) {
-    const s = samples(m.fn).filter((_, i) => i % 3 === 0 || i === N);
-    for (let i = 0; i < s.length - 1; i++) line(space(s[i]), space(s[i + 1]), PATH_COL[m.id], PATH_DASH[m.id]);
-    const mid = mixPath(m.fn, cols(), 0.5);
-    dot(space(mid), rgbToHex(mid), 6);
+  // 3色モードでは「中間色なし」の通り道を薄く重ねる
+  const layers = state.use3 ? [[VARIANTS[0].cols(), 0.3], [VARIANTS[1].cols(), 1]] : [[VARIANTS[0].cols(), 1]];
+  for (const [c, alpha] of layers) {
+    g.globalAlpha = alpha;
+    for (const m of METHODS) {
+      const s = samples(m.fn, c).filter((_, i) => i % 3 === 0 || i === N);
+      for (let i = 0; i < s.length - 1; i++) line(space(s[i]), space(s[i + 1]), PATH_COL[m.id], PATH_DASH[m.id]);
+      const mid = mixPath(m.fn, c, 0.5);
+      dot(space(mid), rgbToHex(mid), 6);
+    }
   }
+  g.globalAlpha = 1;
   for (const c of cols()) dot(space(c), rgbToHex(c), 7);
   // 凡例
   g.setLineDash([]);
@@ -335,19 +354,24 @@ $("fav").addEventListener("click", () => {
   renderFavs(); toast("保存しました");
 });
 $("shot").addEventListener("click", () => {
-  const W = 960, BH = 90, cv = document.createElement("canvas");
-  cv.width = W; cv.height = 40 + METHODS.length * (BH + 46);
+  const W = 960, BH = 60, vs = state.use3 ? VARIANTS : VARIANTS.slice(0, 1), RH = 30 + vs.length * (BH + 22);
+  const cv = document.createElement("canvas");
+  cv.width = W; cv.height = 40 + METHODS.length * RH;
   const g = cv.getContext("2d");
   g.fillStyle = "#16171b"; g.fillRect(0, 0, cv.width, cv.height);
   g.fillStyle = "#e8e8ea"; g.font = "20px system-ui";
   g.fillText(`いろまぜラボ  ${state.a} → ${state.use3 ? state.c + " → " : ""}${state.b}`, 16, 28);
   METHODS.forEach((m, k) => {
-    const y = 40 + k * (BH + 46);
-    const s = samples(m.fn);
-    for (let x = 0; x < W - 32; x++) { g.fillStyle = rgbToHex(s[Math.round((x / (W - 33)) * N)]); g.fillRect(16 + x, y + 26, 1, BH); }
-    const st = chromaStats(m.fn);
-    g.fillStyle = "#e8e8ea"; g.font = "16px system-ui";
-    g.fillText(`${m.name}   真ん中 ${rgbToHex(st.mid)}  C=${st.midC.toFixed(3)}`, 16, y + 18);
+    const y0 = 40 + k * RH;
+    g.fillStyle = "#e8e8ea"; g.font = "bold 17px system-ui";
+    g.fillText(m.name, 16, y0 + 22);
+    vs.forEach((v, j) => {
+      const y = y0 + 30 + j * (BH + 22);
+      const c = v.cols(), s = samples(m.fn, c), st = chromaStats(m.fn, c);
+      g.fillStyle = "#c8cad0"; g.font = "14px system-ui";
+      g.fillText(`中間色${v.label}   真ん中 ${rgbToHex(st.mid)}  C=${st.midC.toFixed(3)}  最小C=${st.min.toFixed(3)}`, 16, y + 14);
+      for (let x = 0; x < W - 32; x++) { g.fillStyle = rgbToHex(s[Math.round((x / (W - 33)) * N)]); g.fillRect(16 + x, y + 20, 1, BH); }
+    });
   });
   const a = document.createElement("a");
   a.href = cv.toDataURL("image/png");

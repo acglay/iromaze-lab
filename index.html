@@ -43,7 +43,7 @@
         <button id="swap" title="AとBを入れかえ">⇄</button>
         <label>B <input type="color" id="cb" /></label>
       </div>
-      <label class="third"><input type="checkbox" id="use3" /> 3色目を間にはさむ(A→C→B)</label>
+      <label class="third"><input type="checkbox" id="use3" /> 中間色ありも下に並べる(A→C→B)</label>
       <div class="pick" id="c3row" hidden>
         <label>C <input type="color" id="cc" /></label>
         <span class="seg2" id="carc" title="自動: 明るさと鮮やかさは両はしの平均、色相は色相環の近い側/反対側の真ん中"><button data-arc="near">近回り</button><button data-arc="far">遠回り</button></span>
@@ -56,7 +56,7 @@
         <p><b>RGB直線</b>: 画面の赤緑青の数値をそのまま平均。青(0,0,255)と黄(255,255,0)の真ん中は(128,128,128)=灰色。補色どうしはRGB立方体の対角の向こう側にあるので、直線が真ん中の灰色の軸を通る。</p>
         <p><b>Oklab</b>: 人の目に均等になるよう作った色空間(Ottosson 2020)で平均。明るさの落ち込みは減るが、補色の真ん中はやはり灰色寄り。</p>
         <p><b>絵の具式</b>: 色を光の波長ごとの反射率(38本)に直し、Kubelka-Munk理論で「光を吸う量÷散らす量」を混ぜる。青の絵の具と黄の絵の具はどちらも緑の光を少しずつ返すので、まぜると緑になる。<a href="https://github.com/rvanwijnen/spectral.js" target="_blank" rel="noopener">spectral.js</a>(MIT)を使用。</p>
-        <p><b>C</b> = Oklch の彩度(あざやかさ)。0 は灰色。</p>
+        <p><b>C</b> = Oklch の彩度(あざやかさ)。0 は灰色。<b>最小C</b> = 帯の中でいちばん濁ったところ。右の%は 最小C ÷ 両はしの平均C。上の段=中間色なし、下の段=中間色あり。</p>
       </details>
     </aside>
   </div>
