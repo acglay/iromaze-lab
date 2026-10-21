@@ -25,7 +25,7 @@
 ## Build, Test & Verify
 - `npm run dev` → http://localhost:5193(`scripts/serve.mjs`、依存なし)
 - `npm run check` → 物理の検算(白+白=白/同色どうし=その色/端点/補色の中間でRGBの彩度が落ちる/絵の具式で青+黄=緑/Oklab往復)。NGで exit 1
-- `node Z:/Claude/_tools/smoke.mjs --app iromaze-lab "http://localhost:5193/#a=0000ff&b=ffff00"`(シードの代わりにURLハッシュで色を固定)
+- `node Z:/Claude/_tools/smoke.mjs --app iromaze-lab "http://localhost:5193/#a=0000ff&b=ffff00&c=auto"`(URLハッシュで色を固定。c無しだと「あり」段が非表示=未描画でblank判定になる)
 - デプロイ: GitHub acglay/iromaze-lab に push → Vercel 自動デプロイ
 
 ## 残課題(M0の外)
