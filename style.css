@@ -34,9 +34,11 @@ h2 { font-size: 13px; color: #9ea3b0; margin: 12px 0 6px; }
 .num { font-variant-numeric: tabular-nums; }
 
 .cube { margin-top: 6px; }
-.cubehead { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
-.seg button { padding: 4px 8px; font-size: 12px; }
-#cube { display: block; width: 100%; height: 300px; touch-action: none; background: #111216; border-radius: 8px; margin-top: 6px; }
+.cubehead { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 14px; }
+.cubetools { display: flex; justify-content: flex-end; margin-top: 4px; min-height: 26px; }
+#vlegend { margin-top: 6px; }
+#vlegend .chip { font-size: 12px; padding: 3px 7px; }
+#cube { display: block; width: 100%; height: clamp(300px, 92vw, 480px); touch-action: none; background: #111216; border-radius: 8px; margin-top: 6px; }
 
 .actions { display: flex; gap: 8px; }
 .round { width: 40px; height: 40px; border-radius: 50%; padding: 0; font-size: 18px; }
@@ -58,7 +60,8 @@ details a { color: #8ab4ff; }
 #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #000c; padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
 #toast.show { opacity: 1; }
 .opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; font-size: 13px; }
-select { font: inherit; color: inherit; background: #2a2c33; border: 1px solid #3a3d46; border-radius: 8px; padding: 5px 6px; max-width: 100%; }
+.opt > span:first-child { flex: none; }
+.opt .seg2 { justify-content: flex-end; }
 .seg2 { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .chip.off { opacity: 0.45; }
 .flags { height: 4px; margin: -1px 0 3px; border-radius: 2px; }

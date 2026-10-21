@@ -278,3 +278,34 @@ export function autoThird(a, b, arc = "near", g = "srgb") {
   const peak = Math.max(1, ...xyzToLin(g, a), ...xyzToLin(g, b));
   return chromaReduce(oklabToXYZ(fromPolar([L, C, h])), g, peak);
 }
+
+// ---- 色度図 ----
+export function xyzToXy([X, Y, Z]) {
+  const s = X + Y + Z;
+  return s > 1e-9 ? [X / s, Y / s] : null;
+}
+export function xyzToUv([X, Y, Z]) {
+  const d = X + 15 * Y + 3 * Z;
+  return d > 1e-9 ? [(4 * X) / d, (9 * Y) / d] : null;
+}
+export const xyToUv = ([x, y]) => { const d = -2 * x + 12 * y + 3; return [(4 * x) / d, (9 * y) / d]; };
+export const uvToXy = ([u, v]) => { const d = 6 * u - 16 * v + 12; return [(9 * u) / d, (4 * v) / d]; };
+// スペクトル軌跡(馬蹄形の弓の部分)。CIE 1931 2° の色度座標 10nm 刻み [λ, x, y]
+export const LOCUS = [
+  [380, 0.1741, 0.005], [390, 0.1738, 0.0049], [400, 0.1733, 0.0048], [410, 0.1726, 0.0048], [420, 0.1714, 0.0051],
+  [430, 0.1689, 0.0069], [440, 0.1644, 0.0109], [450, 0.1566, 0.0177], [460, 0.144, 0.0297], [470, 0.1241, 0.0578],
+  [480, 0.0913, 0.1327], [490, 0.0454, 0.295], [500, 0.0082, 0.5384], [510, 0.0139, 0.7502], [520, 0.0743, 0.8338],
+  [530, 0.1547, 0.8059], [540, 0.2296, 0.7543], [550, 0.3016, 0.6923], [560, 0.3731, 0.6245], [570, 0.4441, 0.5547],
+  [580, 0.5125, 0.4866], [590, 0.5752, 0.4242], [600, 0.627, 0.3725], [610, 0.6658, 0.334], [620, 0.6915, 0.3083],
+  [630, 0.7079, 0.292], [640, 0.719, 0.2809], [650, 0.726, 0.274], [660, 0.73, 0.27], [670, 0.732, 0.268],
+  [680, 0.7334, 0.2666], [690, 0.7344, 0.2656], [700, 0.7347, 0.2653],
+];
+// 馬蹄形(弓+紫の直線)の内側か
+export function inLocus([x, y]) {
+  let inside = false;
+  for (let i = 0, j = LOCUS.length - 1; i < LOCUS.length; j = i++) {
+    const [, xi, yi] = LOCUS[i], [, xj, yj] = LOCUS[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}

@@ -11,13 +11,16 @@
 - `color.js` = 変換と混色(内部表現は **XYZ D65・SDRの白=Y 1.0=203nit**、HDRは1超え)。作業色域3種・Oklab/CIELAB/ICtCp/Jzazbz/HSL・PQ・`mixXYZ`/`mixPath`・`chromaReduce`/`clipTo`・`autoThird`。Nodeの検算でも同じものを使う
 - `device.js` = 出力デバイス(色域+最高輝度)・はみ出し処理・映り込み・色覚。順番は 明るさ上限→色域→映り込み→色覚
 - `present.js` = この画面への出力。P3画面は display-p3 の 2D canvas、HDR画面+WebGPUは `rgba16float`+`toneMapping:{mode:"extended"}`+display-p3(1を超える値をそのまま)。SDR画面でHDRデバイスを再現するときは上限を画面の白にして全体を縮める
-- `app.js` = UI・帯・3D図 / `vendor/spectral.js` = spectral.js 3.0.0(MIT)。`vendor/package.json` で CommonJS 扱い(ルートが `type: module` のため)
+- `view.js` = 色の空間の図(RGB立方体=灰色の軸が縦/Oklab/xy色度図/u'v'色度図)。3Dは線分と点を奥から描き、奥ほど薄く細く。色度図は馬蹄形を塗り、色域を三角形で重ねる。ドラッグ=回転(色度図は移動)・ホイール/ピンチ=拡大・凡例を押すとその方式だけ強調
+- `app.js` = UI・帯 / `vendor/spectral.js` = spectral.js 3.0.0(MIT)。`vendor/package.json` で CommonJS 扱い(ルートが `type: module` のため)
 
 ## 色空間と設定
 - 混ぜ方10種: RGB直線(作業色域のガンマ付き値)/線形RGB(=XYZで混ぜても同じ)/HSL/CIELAB/CIELCh/Oklab/Oklch/ICtCp(BT.2100 PQ)/Jzazbz(Safdar 2017)/絵の具式。極座標系は色相を近回り、片方が無彩色ならもう一方の色相
 - 作業色域: hex を「その色域の原色で読んだ値」とする(#ff0000=その色域の赤)。カラーピッカーと3色目チップの表示はsRGB扱いの近似
 - 出力デバイス: 理想/sRGBモニタ/P3スマホ/Rec.2020テレビ/HDRスマホ(P3・800nit)/HDR10テレビ(2020・1000nit)。色域=切りとる/彩度を下げる(Oklchで L・h 固定の二分探索)、明るさ=切りとる/なめらかに圧縮(上限の75%から指数ロールオフ)
 - 色覚: Machado 2009(重さ1.0)を線形sRGBにかける。2色型では青→黄の帯でも必ず無彩色を通る(見分けられる軸が1本になるため。不具合ではない)。まわりの光: 0/2%/15%をXYZに足す
+- スペクトル軌跡は CIE 1931 2° の色度座標表(10nm)を埋め込み。検算で Wyman 2013 の等色関数フィットと突き合わせる(フィットは両端400〜430nm・630nm超で外れるので表示には使わない)。P3の赤・Rec.2020の3原色は軌跡の上にあり、10nmの折れ線では外側判定になりうる
+- 選択はすべてその場のボタン(プルダウンは使わない。ユーザー要望 2026-10-22)
 - 帯の下の線: 赤紫=デバイス色域外/黄=上限超え/橙=両方(divの背景グラデーション。canvasにするとsmokeが空の帯をblank判定する)
 - URLは既定値と違う設定だけ書く(g, dev, gm, tm, env, cvd, scr, m=方式列, ka/kb/kc=明るさ倍率)
 
@@ -41,5 +44,5 @@
 
 ## 残課題
 - 混ぜる比率のスライダー、絵の具の着色力(tintingStrength)調整
-- 3D図はCanvas 2Dの簡易投影(奥行きの前後は描き分けない)。デバイスに通した後の経路は描いていない
+- 図にはデバイスに通した後の経路は描いていない
 - HDR出力の明るさの見え方は実機(HDR画面)で未確認。Redmi 15 は SDR の想定

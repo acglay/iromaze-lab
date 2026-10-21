@@ -21,12 +21,11 @@
       <section class="cube">
         <div class="cubehead">
           <b>色の空間の中の通り道</b>
-          <span class="seg">
-            <button data-space="rgb" class="on">RGB立方体</button>
-            <button data-space="oklab">Oklab</button>
-          </span>
+          <span class="seg2" id="vmode"></span>
         </div>
+        <div class="cubetools"><span class="seg2" id="vpreset"></span></div>
         <canvas id="cube"></canvas>
+        <div id="vlegend" class="chips"></div>
         <p class="hint" id="cubehint"></p>
       </section>
     </main>
@@ -61,13 +60,13 @@
       </details>
 
       <h2>出力デバイス(エミュレーション)</h2>
-      <select id="device"></select>
+      <span class="seg2" id="device"></span>
       <div class="opt"><span>色域からはみ出し</span><span class="seg2" id="gm"></span></div>
       <div class="opt"><span>明るさの上限超え</span><span class="seg2" id="tm"></span></div>
       <p class="hint">帯の下の線: <b style="color:#ff3df2">赤紫</b>=デバイスの色域の外 / <b style="color:#ffd400">黄</b>=明るさの上限を超えた / <b style="color:#ff8a3d">橙</b>=両方</p>
 
       <h2>見る人・見る場所</h2>
-      <div class="opt"><span>色覚</span><select id="cvd"></select></div>
+      <div class="opt"><span>色覚</span><span class="seg2" id="cvd"></span></div>
       <div class="opt"><span>まわりの光</span><span class="seg2" id="env"></span></div>
 
       <h2>この画面</h2>

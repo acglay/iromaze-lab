@@ -122,5 +122,44 @@ for (const [nm, a, b] of [...PAIRS, ["白×黒", "#ffffff", "#000000"], ["白×�
   ok(Math.abs(blk[1] - 0.15) < 1e-9, `屋外の日なた: 黒が Y=0.15 に浮く(コントラスト比 ${cr.toFixed(1)}:1)`);
 }
 
+// 10. 色度図: スペクトル軌跡の表を独立な近似(Wyman, Sloan & Shirley 2013 の等色関数フィット)と突き合わせる
+{
+  const g = (l, mu, s1, s2) => Math.exp(-0.5 * ((l - mu) / (l < mu ? s1 : s2)) ** 2);
+  const cmf = (l) => [
+    1.056 * g(l, 599.8, 37.9, 31.0) + 0.362 * g(l, 442.0, 16.0, 26.7) - 0.065 * g(l, 501.1, 20.4, 26.2),
+    0.821 * g(l, 568.8, 46.9, 40.5) + 0.286 * g(l, 530.9, 16.3, 31.1),
+    1.217 * g(l, 437.0, 11.8, 36.0) + 0.681 * g(l, 459.0, 26.0, 13.8),
+  ];
+  let worst = 0, at = 0;
+  for (const [l, x, y] of C.LOCUS.filter(([l]) => l >= 450 && l <= 620)) {
+    const [fx, fy] = C.xyzToXy(cmf(l));
+    const d = Math.hypot(fx - x, fy - y);
+    if (d > worst) { worst = d; at = l; }
+  }
+  ok(worst < 0.02, `スペクトル軌跡の表と等色関数フィットの差 最大${worst.toFixed(4)} (${at}nm, 450〜620nm。フィット自体の誤差が520nm付近で約0.016)`);
+  // 書き写しの誤り検出: 430〜690nm で隣どうしの間隔の比が 1/3〜3 に収まる(なめらかな曲線)
+  const L = C.LOCUS.filter(([l]) => l >= 430 && l <= 690);
+  const st = L.slice(1).map((p, i) => Math.hypot(p[1] - L[i][1], p[2] - L[i][2]));
+  const bad = st.slice(1).map((d, i) => d / st[i]).filter((r) => r < 1 / 3 || r > 3);
+  ok(bad.length === 0, `スペクトル軌跡の間隔がなめらか(比が1/3〜3の外 ${bad.length} 件)`);
+  const [wx, wy] = C.xyzToXy(C.WHITE);
+  ok(Math.abs(wx - 0.3127) < 1e-3 && Math.abs(wy - 0.329) < 1e-3, `D65 の白 = (${wx.toFixed(4)}, ${wy.toFixed(4)})`);
+  const prim = ["srgb", "p3", "rec2020"].flatMap((gm) => [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((v) => C.xyzToXy(C.linToXYZ(gm, v))));
+  // 単色光に近い原色(P3の赤・Rec.2020の3色)は軌跡の上。10nmの折れ線は曲線より内側を通るので 0.003 の余裕をみる
+  const segDist = ([px, py]) => Math.min(...C.LOCUS.slice(1).map(([, x2, y2], i) => {
+    const [, x1, y1] = C.LOCUS[i], dx = x2 - x1, dy = y2 - y1;
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(px - x1 - t * dx, py - y1 - t * dy);
+  }));
+  ok(prim.every((p) => C.inLocus(p) || segDist(p) < 0.003), `3色域の原色は馬蹄形の内側か軌跡の上(軌跡からの最大距離 ${Math.max(...prim.filter((p) => !C.inLocus(p)).map(segDist)).toFixed(4)})`);
+  const [u, v] = C.xyToUv([0.3127, 0.329]), back = C.uvToXy([u, v]);
+  ok(Math.abs(u - 0.1978) < 1e-3 && Math.abs(v - 0.4683) < 1e-3 && Math.hypot(back[0] - 0.3127, back[1] - 0.329) < 1e-9, `D65 の u'v' = (${u.toFixed(4)}, ${v.toFixed(4)})・往復一致`);
+  const a = H("#ff0000"), b = H("#0000ff");
+  const p = [0.25, 0.5, 0.75].map((t) => C.xyzToXy(C.mixXYZ("lin", a, b, t)));
+  const [ax, ay] = C.xyzToXy(a), [bx, by] = C.xyzToXy(b);
+  const off = Math.max(...p.map(([x, y]) => Math.abs((bx - ax) * (y - ay) - (by - ay) * (x - ax)) / Math.hypot(bx - ax, by - ay)));
+  ok(off < 1e-9, `線形RGBの混色は色度図で直線 (直線からのずれ ${off.toExponential(1)})`);
+}
+
 console.log(fail ? `\n${fail} 件 NG` : "\nすべて OK");
 process.exit(fail ? 1 : 0);

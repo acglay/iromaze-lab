@@ -1,6 +1,7 @@
-import { SPACES, SPACE, GAMUTS, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, linToXYZ, xyzToOklab, oklch, autoThird, clipTo } from "./color.js";
+import { SPACES, SPACE, GAMUTS, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, oklch, autoThird, clipTo } from "./color.js";
 import { DEVICES, DEVICE, GAMUT_MAPS, TONE_MAPS, ENVS, CVDS, pipeline } from "./device.js";
 import { screen, initHdr, paintBand, paintFlags, cssColor } from "./present.js";
+import { MODES, VIEW_PRESETS, view, setPreset, renderView, bindView } from "./view.js";
 
 const PRESET_GROUPS = [
   ["補色ペア", [
@@ -45,7 +46,7 @@ const K_DEFAULT = 1;
 
 const $ = (id) => document.getElementById(id);
 const state = {
-  a: DEFAULT.a, b: DEFAULT.b, c: "#00c070", cAuto: true, cArc: "near", use3: true, preset: DEFAULT, space: "rgb",
+  a: DEFAULT.a, b: DEFAULT.b, c: "#00c070", cAuto: true, cArc: "near", use3: true, preset: DEFAULT,
   k: { a: K_DEFAULT, b: K_DEFAULT, c: K_DEFAULT },
   ...structuredClone(MODE_DEFAULTS),
 };
@@ -172,103 +173,50 @@ function renderBands() {
   $("pipeinfo").textContent = parts.join(" ");
 }
 
-// ---- 3D図(Canvas 2D で回転投影)----
-const view = { yaw: -0.7, pitch: 0.45 };
-function project(p, w, h) {
-  const [x, y, z] = p;
-  const cy = Math.cos(view.yaw), sy = Math.sin(view.yaw), cp = Math.cos(view.pitch), sp = Math.sin(view.pitch);
-  const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
-  const y1 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
-  const s = Math.min(w, h) * 0.55 * (3 / (3 + z2));
-  return [w / 2 + x1 * s, h / 2 - y1 * s, z2];
-}
-// RGB: 作業色域の伝達関数つき値(赤=x, 緑=y, 青=z)を -0.5..0.5 に。Oklab: a=x, L=y, b=-z
-const toView = (xyz) => {
-  if (state.space === "rgb") return xyzToRgb(state.gamut, xyz).map((v) => v - 0.5);
-  const [L, a, b] = xyzToOklab(xyz);
-  return [a * 2.2, L - 0.5, -b * 2.2];
+// ---- 色の空間の図(view.js)----
+const HINTS = {
+  rgb: (g) => `${g}の数値の立方体(黒が下・白が上)。点線=灰色の軸。補色を直線で結ぶとこの軸を突きぬける。「上から」で見ると色相の六角形。`,
+  oklab: () => "縦=明るさL、横=色み(a,b)。中心の点線(灰色の軸)に近いほど濁った色。",
+  xy: () => "CIE 1931 xy色度図。弓=虹の単色光、真ん中=白(D65)。三角形=色域。線形RGBの混色はこの図で必ず直線になる。",
+  uv: () => "CIE 1976 u'v'色度図。xyより距離が見た目の差に近い。三角形=色域。",
 };
-const dotCol = (xyz) => rgbToHex(xyzToRgb("srgb", clipTo(xyz, "srgb")));
-// 色域(線形RGBの単位立方体)の12本の辺を XYZ の折れ線で
-function gamutEdges(g) {
-  const edges = [];
-  for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
-    const a = [i & 1, (i >> 1) & 1, (i >> 2) & 1], b = [j & 1, (j >> 1) & 1, (j >> 2) & 1];
-    if (a.reduce((s, v, k) => s + Math.abs(v - b[k]), 0) !== 1) continue;
-    edges.push(Array.from({ length: 13 }, (_, t) => linToXYZ(g, a.map((v, k) => v + (b[k] - v) * (t / 12)))));
-  }
-  return edges;
-}
-
 function renderCube() {
-  const cv = $("cube");
-  const w = Math.round(cv.clientWidth * devicePixelRatio), h = Math.round(cv.clientHeight * devicePixelRatio);
-  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
-  const g = cv.getContext("2d");
-  g.clearRect(0, 0, w, h);
-  g.lineWidth = devicePixelRatio;
-  const P = (p) => project(p, w, h);
-  const poly = (pts, color, dash = [], width = 1) => {
-    g.strokeStyle = color; g.lineWidth = width * devicePixelRatio; g.setLineDash(dash.map((d) => d * devicePixelRatio));
-    g.beginPath();
-    pts.forEach((p, i) => { const [x, y] = P(p); i ? g.lineTo(x, y) : g.moveTo(x, y); });
-    g.stroke();
-  };
-  const dot = (p, color, r) => {
-    const [x, y] = P(p);
-    g.fillStyle = color; g.beginPath(); g.arc(x, y, r * devicePixelRatio, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = "#0008"; g.lineWidth = devicePixelRatio; g.setLineDash([]); g.stroke();
-  };
-  // 作業色域(灰)と出力デバイスの色域(橙の破線)
-  for (const e of gamutEdges(state.gamut)) poly(e.map(toView), "#4a4d58");
   const dev = DEVICE[state.device];
-  if (dev.gamut && dev.gamut !== state.gamut) for (const e of gamutEdges(dev.gamut)) poly(e.map(toView), "#c77a2e", [4, 3]);
-  poly([[0, 0, 0], linToXYZ(state.gamut, [1, 1, 1])].map(toView), "#999", [3, 3]);
-  for (let i = 1; i < 8; i++) { const c = linToXYZ(state.gamut, [i & 1, (i >> 1) & 1, (i >> 2) & 1]); dot(toView(c), dotCol(c), 4); }
-  dot(toView([0, 0, 0]), "#000", 4);
-  $("cubehint").textContent = (state.space === "rgb"
-    ? `${GAMUTS[state.gamut].name}の数値の立方体。点線=灰色の軸、補色を直線で結ぶとこの軸を突きぬける。`
-    : "縦=明るさL、横=色み(a,b)。点線=灰色の軸、中心に近いほど濁った色。") +
-    (dev.gamut && dev.gamut !== state.gamut ? ` 橙の破線=${dev.name}が出せる範囲。` : "") + " ドラッグで回転。";
-  // 3色モードでは「中間色なし」の通り道を薄く重ねる
-  const layers = state.use3 ? [[VARIANTS[0].cols(), 0.3], [VARIANTS[1].cols(), 1]] : [[VARIANTS[0].cols(), 1]];
-  for (const [c, alpha] of layers) {
-    g.globalAlpha = alpha;
+  const layers = (state.use3 ? [[VARIANTS[0].cols(), 0.3], [VARIANTS[1].cols(), 1]] : [[VARIANTS[0].cols(), 1]]).map(([c, alpha]) => ({
+    alpha,
+    paths: state.methods.map((id) => ({ id, color: METHOD_COL[id], pts: Array.from({ length: 49 }, (_, i) => mixPath(id, c, i / 48, state.gamut)) })),
+  }));
+  renderView($("cube"), { gamut: state.gamut, devGamut: dev.gamut, layers, ends: activeVariants().at(-1).cols(), p3: screen.p3 });
+  $("cubehint").textContent = HINTS[view.mode](GAMUTS[state.gamut].name) +
+    (dev.gamut && dev.gamut !== state.gamut ? ` 橙の破線=${dev.name}が出せる範囲。` : "") +
+    (view.mode === "xy" || view.mode === "uv" ? " ドラッグで移動・ピンチで拡大。" : " ドラッグで回転・ピンチで拡大。");
+  // 凡例(押すとその方式だけ強調)
+  const lg = $("vlegend");
+  if (lg.dataset.key !== state.methods.join(",")) {
+    lg.dataset.key = state.methods.join(",");
+    lg.innerHTML = "";
     for (const id of state.methods) {
-      const s = Array.from({ length: 33 }, (_, i) => mixPath(id, c, i / 32, state.gamut));
-      poly(s.map(toView), METHOD_COL[id], [], 1.5);
-      dot(toView(s[16]), dotCol(s[16]), 5);
+      const b = chip(SPACE[id].name, [METHOD_COL[id]], () => { view.focus = view.focus === id ? null : id; renderCube(); });
+      b.dataset.m = id;
+      lg.appendChild(b);
     }
   }
-  g.globalAlpha = 1;
-  for (const c of activeVariants().at(-1).cols()) dot(toView(c), dotCol(c), 7);
-  g.setLineDash([]);
-  g.font = `${11 * devicePixelRatio}px system-ui`;
-  state.methods.forEach((id, i) => {
-    const y = (14 + i * 14) * devicePixelRatio;
-    g.fillStyle = METHOD_COL[id]; g.fillRect(8 * devicePixelRatio, y - 7 * devicePixelRatio, 16 * devicePixelRatio, 3 * devicePixelRatio);
-    g.fillStyle = "#ddd"; g.fillText(SPACE[id].name, 28 * devicePixelRatio, y);
-  });
+  lg.querySelectorAll(".chip").forEach((b) => b.classList.toggle("off", !!view.focus && view.focus !== b.dataset.m));
+  document.querySelectorAll("#vmode button").forEach((b) => b.classList.toggle("on", b.dataset.v === view.mode));
+  $("vpreset").hidden = view.mode === "xy" || view.mode === "uv";
 }
 {
-  const cv = $("cube");
-  let drag = null;
-  cv.addEventListener("pointerdown", (e) => { drag = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener("pointermove", (e) => {
-    if (!drag) return;
-    view.yaw += (e.clientX - drag[0]) * 0.01;
-    view.pitch = Math.max(-1.5, Math.min(1.5, view.pitch + (e.clientY - drag[1]) * 0.01));
-    drag = [e.clientX, e.clientY];
-    renderCube();
-  });
-  cv.addEventListener("pointerup", () => (drag = null));
-  document.querySelectorAll(".seg button").forEach((b) =>
-    b.addEventListener("click", () => {
-      state.space = b.dataset.space;
-      document.querySelectorAll(".seg button").forEach((x) => x.classList.toggle("on", x === b));
-      renderCube();
-    })
-  );
+  bindView($("cube"), () => renderCube());
+  const mk = (box, items, onPick) => {
+    for (const it of items) {
+      const b = document.createElement("button");
+      b.textContent = it.name; b.dataset.v = it.id;
+      b.addEventListener("click", () => { onPick(it.id); renderCube(); });
+      $(box).appendChild(b);
+    }
+  };
+  mk("vmode", MODES, (id) => { view.mode = id; view.zoom = 1; view.panX = view.panY = 0; });
+  mk("vpreset", [...VIEW_PRESETS, { id: "reset", name: "↺" }], (id) => setPreset(id === "reset" ? "tilt" : id));
 }
 
 // ---- パネル ----
@@ -350,11 +298,6 @@ function segment(id, items, key, after) {
     box.appendChild(b);
   }
 }
-function select(id, items, key) {
-  const el = $(id);
-  el.innerHTML = items.map((it) => `<option value="${it.id}">${it.name}</option>`).join("");
-  el.addEventListener("change", () => { state[key] = el.value; syncInputs(); rebuild(); });
-}
 function renderMethods() {
   const box = $("methods");
   box.innerHTML = "";
@@ -394,9 +337,8 @@ function syncInputs() {
   document.querySelectorAll("#carc button").forEach((b) => b.classList.toggle("on", state.cAuto && b.dataset.arc === state.cArc));
   $("ca").value = state.a; $("cb").value = state.b; $("cc").value = state.c;
   $("use3").checked = state.use3; $("c3row").hidden = !state.use3;
-  for (const [id, key] of [["gamut", "gamut"], ["gm", "gm"], ["tm", "tm"], ["env", "env"], ["scr", "scr"]])
+  for (const [id, key] of [["gamut", "gamut"], ["device", "device"], ["gm", "gm"], ["tm", "tm"], ["env", "env"], ["cvd", "cvd"], ["scr", "scr"]])
     document.querySelectorAll(`#${id} button`).forEach((b) => b.classList.toggle("on", b.dataset.v === state[key]));
-  $("device").value = state.device; $("cvd").value = state.cvd;
   document.querySelectorAll("#methods .chip").forEach((b) => b.classList.toggle("off", !state.methods.includes(b.dataset.m)));
   document.querySelectorAll("#krows .row").forEach((row) => {
     const k = state.k[row.dataset.k];
@@ -482,8 +424,8 @@ segment("gm", GAMUT_MAPS, "gm");
 segment("tm", TONE_MAPS, "tm");
 segment("env", ENVS, "env");
 segment("scr", [{ id: "auto", name: "この画面の力で", note: "P3・HDRに対応していればそのまま出す" }, { id: "sdr", name: "SDRで再現", note: "HDRでも、上限を白にして暗く縮めて見せる" }], "scr");
-select("device", DEVICES, "device");
-select("cvd", CVDS, "cvd");
+segment("device", DEVICES, "device");
+segment("cvd", CVDS, "cvd");
 renderMethods();
 renderKRows();
 readHash();
