@@ -150,6 +150,16 @@ for (const [nm, a, b] of [...PAIRS, ["白×黒", "#ffffff", "#000000"], ["白×�
   ok(G.Lmax > 0.9 && G.Lmin < 0.35 && C.oklch(H("#0000ff")).C > C.oklch(K.toPrint(H("#0000ff"))).C, `印刷の明るさ L=${G.Lmin.toFixed(3)}〜${G.Lmax.toFixed(3)}(紙〜黒)、sRGBの青は刷ると彩度が下がる`);
 }
 
+// 12. むら: Oklab で混ぜた黒→白は均等(≈1.0)、RGB直線・線形RGBは不均等(明るさの変わり方がそろわない)
+{
+  const bw = (id) => C.evenness(Array.from({ length: 97 }, (_, i) => C.mixXYZ(id, [0, 0, 0], C.WHITE, i / 96)));
+  const ok1 = bw("oklab"), rgb = bw("rgb"), lin = bw("lin");
+  ok(ok1 < 1.01 && rgb > 1.1 && lin > rgb, `むら(黒→白): Oklab ${ok1.toFixed(3)} / RGB直線 ${rgb.toFixed(2)} / 線形RGB ${lin.toFixed(2)}`);
+  const L = 0.62, Cc = 0.11;
+  const ring = C.oklchToXYZ(L, Cc, 40), back = C.oklch(ring);
+  ok(Math.abs(back.L - L) < 1e-6 && Math.abs(back.C - Cc) < 1e-6 && Math.abs(back.h - 40) < 1e-4, "Oklch → XYZ → Oklch の往復(ピッカー用)");
+}
+
 // 10. 色度図: スペクトル軌跡の表を独立な近似(Wyman, Sloan & Shirley 2013 の等色関数フィット)と突き合わせる
 {
   const g = (l, mu, s1, s2) => Math.exp(-0.5 * ((l - mu) / (l < mu ? s1 : s2)) ** 2);

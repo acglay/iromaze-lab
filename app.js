@@ -1,4 +1,4 @@
-import { SPACES, SPACE, GAMUTS, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, oklch, autoThird, clipTo } from "./color.js";
+import { SPACES, SPACE, GAMUTS, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, oklch, oklchToXYZ, autoThird, clipTo, chromaReduce, inGamut, evenness } from "./color.js";
 import { DEVICES, DEVICE, GAMUT_MAPS, TONE_MAPS, ENVS, CVDS, pipeline } from "./device.js";
 import { screen, initHdr, paintBand, paintFlags, cssColor } from "./present.js";
 import { MODES, VIEW_PRESETS, view, setPreset, renderView, bindView, rgbOutline } from "./view.js";
@@ -117,7 +117,7 @@ function rowData(spaceId, cols) {
   const ends = (Cs[0] + Cs[N]) / 2;
   let min = Infinity;
   for (const c of Cs) min = Math.min(min, c);
-  return { raw, seen, flags: out.map((r) => r.flags), mid: seen[N / 2], midC: Cs[N / 2], ends, min };
+  return { raw, seen, flags: out.map((r) => r.flags), mid: seen[N / 2], midC: Cs[N / 2], ends, min, even: evenness(seen) };
 }
 // SDRの画面でHDRを見せるときの縮小率(デバイスの上限、理想なら入力の最大の明るさを画面の白に)
 function sdrScale() {
@@ -158,11 +158,12 @@ function renderBands() {
       el.querySelector(".sw").style.background = cssColor(d.mid, scale);
       el.querySelector(".sw").title = "押すと真ん中の色のsRGB値と印刷用CMYK";
       el.querySelector(".sw")._mid = d.raw[N / 2];
-      el.querySelector(".txt").textContent = `真ん中C=${d.midC.toFixed(3)} 最小C=${d.min.toFixed(3)}`;
+      el.querySelector(".txt").textContent = `中C=${d.midC.toFixed(3)} 最小C=${d.min.toFixed(3)} むら${d.even.toFixed(1)}`;
       el.querySelector(".meter i").style.width = Math.min(100, ratio * 100) + "%";
       el.querySelector(".pct").textContent = d.ends > 1e-4 ? `${Math.round(ratio * 100)}%` : "(灰色)";
       el.dataset.midc = d.midC.toFixed(4);
       el.dataset.minc = d.min.toFixed(4);
+      el.dataset.even = d.even.toFixed(3);
       el.dataset.out = d.flags.filter((f) => f.outGamut || f.overPeak).length;
     }
   }
@@ -347,7 +348,12 @@ function syncInputs() {
     state.k.c = Math.round(((state.k.a + state.k.b) / 2) * 100) / 100;
   }
   document.querySelectorAll("#carc button").forEach((b) => b.classList.toggle("on", state.cAuto && b.dataset.arc === state.cArc));
-  $("ca").value = state.a; $("cb").value = state.b; $("cc").value = state.c;
+  for (const n of ["a", "b", "c"]) {
+    const el = $("c" + n);
+    el.style.background = cssColor(rgbToXYZ(state.gamut, hexToRgb(state[n])));
+    el.classList.toggle("editing", picking === n);
+  }
+  syncPicker();
   $("use3").checked = state.use3; $("c3row").hidden = !state.use3;
   for (const [id, key] of [["gamut", "gamut"], ["device", "device"], ["gm", "gm"], ["tm", "tm"], ["env", "env"], ["cvd", "cvd"], ["scr", "scr"]])
     document.querySelectorAll(`#${id} button`).forEach((b) => b.classList.toggle("on", b.dataset.v === state[key]));
@@ -377,9 +383,47 @@ function rebuild() {
   update();
 }
 
-$("ca").addEventListener("input", (e) => { state.a = e.target.value; syncInputs(); update(); });
-$("cb").addEventListener("input", (e) => { state.b = e.target.value; syncInputs(); update(); });
-$("cc").addEventListener("input", (e) => { state.c = e.target.value; state.cAuto = false; syncInputs(); update(); });
+// ---- 自前の色ピッカー(Oklch。作業色域の外は色相を保って端に寄せる)----
+let picking = null; // 調整中の色 "a" | "b" | "c" | null
+const pick = { L: 0.5, C: 0.1, h: 0, clipped: false };
+function syncPicker() {
+  $("picker").hidden = !picking;
+  if (!picking) return;
+  const set = (id, v) => { if (document.activeElement !== $(id)) $(id).value = v; };
+  set("pL", pick.L); set("pC", pick.C); set("pH", pick.h);
+  $("vL").textContent = pick.L.toFixed(3); $("vC").textContent = pick.C.toFixed(3); $("vH").textContent = `${pick.h.toFixed(0)}°`;
+  if (document.activeElement !== $("pHex")) $("pHex").value = state[picking];
+  $("pNote").textContent = pick.clipped ? "色域の端に寄せた" : "";
+  // スライダーの帯: その軸だけ動かした色(作業色域に収めて、この画面の色で)
+  const grad = (f) => `linear-gradient(90deg, ${Array.from({ length: 13 }, (_, i) => cssColor(chromaReduce(f(i / 12), state.gamut))).join(", ")})`;
+  $("pL").style.background = grad((t) => oklchToXYZ(t, pick.C, pick.h));
+  $("pC").style.background = grad((t) => oklchToXYZ(pick.L, t * 0.5, pick.h));
+  $("pH").style.background = grad((t) => oklchToXYZ(pick.L, pick.C, t * 360));
+}
+function loadPick(n) {
+  const { L, C, h } = oklch(rgbToXYZ(state.gamut, hexToRgb(state[n])));
+  Object.assign(pick, { L, C, h: C < 1e-4 ? pick.h : h, clipped: false });
+}
+function applyPick() {
+  const x = oklchToXYZ(pick.L, pick.C, pick.h);
+  pick.clipped = !inGamut(state.gamut, x);
+  state[picking] = rgbToHex(xyzToRgb(state.gamut, chromaReduce(x, state.gamut)));
+  if (picking === "c") state.cAuto = false;
+  syncInputs(); update();
+}
+for (const n of ["a", "b", "c"]) $("c" + n).addEventListener("click", () => {
+  picking = picking === n ? null : n;
+  if (picking) loadPick(n);
+  syncInputs();
+});
+for (const [id, k] of [["pL", "L"], ["pC", "C"], ["pH", "h"]]) $(id).addEventListener("input", (e) => { pick[k] = Number(e.target.value); applyPick(); });
+$("pHex").addEventListener("change", (e) => {
+  const v = e.target.value.trim().replace(/^#?/, "#").toLowerCase();
+  if (!/^#[0-9a-f]{6}$/.test(v)) return toast("色コードは #rrggbb の形で");
+  state[picking] = v; loadPick(picking);
+  if (picking === "c") state.cAuto = false;
+  syncInputs(); update();
+});
 document.querySelectorAll("#carc button").forEach((b) =>
   b.addEventListener("click", () => {
     state.cAuto = true; state.cArc = b.dataset.arc; syncInputs(); update();
@@ -431,7 +475,7 @@ $("shot").addEventListener("click", () => {
   document.body.appendChild(a); a.click(); a.remove();
 });
 
-segment("gamut", Object.values(GAMUTS), "gamut");
+segment("gamut", Object.values(GAMUTS), "gamut", () => picking && loadPick(picking)); // 色コードは色域ごとの読みなので L・C・h を読み直す
 segment("gm", GAMUT_MAPS, "gm");
 segment("tm", TONE_MAPS, "tm");
 segment("env", ENVS, "env");

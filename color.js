@@ -243,6 +243,15 @@ export function mixPath(spaceId, cols, t, g = "srgb") {
   return t < 0.5 ? mixXYZ(spaceId, a, c, t * 2, g) : mixXYZ(spaceId, c, b, (t - 0.5) * 2, g);
 }
 
+// 帯の「むら」: 隣どうしの Oklab の距離の 最大 ÷ 平均(1.0 = 完全に均等)
+export function evenness(xyzs) {
+  const lab = xyzs.map(xyzToOklab);
+  const d = lab.slice(1).map((p, i) => Math.hypot(p[0] - lab[i][0], p[1] - lab[i][1], p[2] - lab[i][2]));
+  const mean = d.reduce((a, b) => a + b, 0) / d.length;
+  return mean > 1e-6 ? Math.max(...d) / mean : 1;
+}
+export const oklchToXYZ = (L, C, h) => oklabToXYZ(fromPolar([L, C, h]));
+
 // ---- 色域に収める ----
 export function clipTo(xyz, g, peak = 1) {
   return linToXYZ(g, xyzToLin(g, xyz).map((v) => Math.min(peak, Math.max(0, v))));

@@ -39,13 +39,19 @@
       <div id="presets" class="chips"></div>
       <h2>色をえらぶ</h2>
       <div class="pick">
-        <label>A <input type="color" id="ca" /></label>
+        <button class="swbtn" id="ca" data-n="a" title="押して色を調整">A</button>
         <button id="swap" title="AとBを入れかえ">⇄</button>
-        <label>B <input type="color" id="cb" /></label>
+        <button class="swbtn" id="cb" data-n="b" title="押して色を調整">B</button>
+      </div>
+      <div id="picker" hidden>
+        <div class="row"><span class="slabel" title="明るさ(Oklch の L)">明るさL</span><input type="range" id="pL" min="0" max="1" step="0.001" /><span class="sval" id="vL"></span></div>
+        <div class="row"><span class="slabel" title="あざやかさ(Oklch の C)">彩度C</span><input type="range" id="pC" min="0" max="0.5" step="0.001" /><span class="sval" id="vC"></span></div>
+        <div class="row"><span class="slabel" title="色相(Oklch の h)">色相h</span><input type="range" id="pH" min="0" max="360" step="0.5" /><span class="sval" id="vH"></span></div>
+        <div class="row"><span class="slabel">色コード</span><input id="pHex" class="hex" maxlength="7" spellcheck="false" /><span class="sval hint" id="pNote"></span></div>
       </div>
       <label class="third"><input type="checkbox" id="use3" /> 中間色ありも下に並べる(A→C→B)</label>
       <div class="pick" id="c3row" hidden>
-        <label>C <input type="color" id="cc" /></label>
+        <button class="swbtn" id="cc" data-n="c" title="押して色を調整">C</button>
         <span class="seg2" id="carc" title="自動: 明るさと鮮やかさは両はしの平均、色相は色相環の近い側/反対側の真ん中"><button data-arc="near">近回り</button><button data-arc="far">遠回り</button></span>
         <span class="hint">灰色の真ん中を避けて外側を通すと、RGBでも濁らない。近回り/遠回り=自動、Cを選ぶと手動</span>
       </div>
@@ -85,6 +91,8 @@
         <p><b>出力デバイス</b>: 作った色を、そのデバイスが出せる範囲に収めた結果を再現する。「切りとる」はRGBの各チャンネルを切る(色相がずれやすい)、「彩度を下げる」はOklchで色相と明るさを保つ。HDRの明るさは「なめらかに圧縮」で上限の手前から寝かせる。</p>
         <p><b>見る人・見る場所</b>: 色覚は Machado ら(2009)の行列で P型・D型・T型(重さ100%)を再現。まわりの光は画面に映り込んだ光を足し算する(屋外の日なたでは黒が白の15%まで浮く)。</p>
         <p><b>この画面</b>: P3対応の画面なら display-p3 で、HDR対応の画面(+WebGPU)なら 1 を超える明るさのまま出す。SDRの画面でHDRデバイスを再現するときは、上限が画面の白になるよう全体を暗くして見せる。</p>
+        <p><b>色の選び方</b>: A/B/C を押すと Oklch(明るさ・彩度・色相)のスライダーが開く。作業色域の外を選ぶと、色相を保ったまま彩度を下げて端に寄せる。色コードは「作業色域の原色で読んだ値」。</p>
+        <p><b>むら</b> = 帯の隣どうしの見た目の差(Oklab の距離)のいちばん大きい所 ÷ 平均。1.0 なら完全に均等、2 なら一番急な所が平均の2倍の速さで色が変わる。</p>
         <p><b>C</b> = Oklch の彩度(あざやかさ)。0 は灰色。<b>最小C</b> = 帯の中でいちばん濁ったところ。右の%は 最小C ÷ 両はしの平均C。上の段=中間色なし、下の段=中間色あり。</p>
       </details>
     </aside>

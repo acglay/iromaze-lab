@@ -52,7 +52,12 @@ h2 { font-size: 13px; color: #9ea3b0; margin: 12px 0 6px; }
 .chip .x { margin-left: 2px; color: #9ea3b0; }
 .pick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pick label { display: flex; align-items: center; gap: 6px; }
-input[type="color"] { width: 54px; height: 36px; border: none; background: none; padding: 0; }
+.swbtn { width: 54px; height: 36px; font-weight: bold; color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000; border: 2px solid #3a3d46; }
+.swbtn.editing { border-color: #fff; box-shadow: 0 0 0 2px #4a6cf7; }
+#picker { background: #24262d; border-radius: 8px; padding: 4px 8px; margin: 8px 0; }
+#picker input[type="range"] { -webkit-appearance: none; appearance: none; height: 16px; border-radius: 8px; }
+#picker input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 2px solid #000; }
+.hex { flex: 1; min-width: 0; font: inherit; color: inherit; background: #16171b; border: 1px solid #3a3d46; border-radius: 6px; padding: 3px 6px; }
 input[type="range"] { touch-action: pan-y; }
 .third { display: block; margin: 10px 0 6px; font-size: 14px; }
 details { margin-top: 14px; font-size: 13px; line-height: 1.6; color: #c8cad0; }
