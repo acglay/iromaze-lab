@@ -5,6 +5,7 @@
 // インクの曲線は scripts/fit-inks.mjs で ISO 12647-2 PC1(FOGRA39相当)のベタ5色+CMY重ね+G重ねの Lab に当てはめた(R/B重ねは検算で答え合わせ)。
 // 見る光は D65(このアプリの内部表現に合わせる。規格は D50)。
 import { xyzToOklab, oklabToXYZ, oklch } from "./color.js";
+import { reflToXYZ } from "./illum.js";
 
 const BANDS = Array.from({ length: 38 }, (_, i) => 380 + i * 10);
 const YN = 2; // Yule–Nielsen の n
@@ -202,7 +203,29 @@ export function printCMYK(xyz) {
   }
   return c;
 }
-export const inkXYZ = (cmyk) => printGamut().model.xyz(cmyk);
+// 刷った色はいまの照明の下で見る(CMYK の割り出し・色域は D65 で設計したもの)
+export const inkXYZ = (cmyk) => reflToXYZ(printGamut().model.spectrum(cmyk));
+// 同じ灰色を「墨(K)だけ」と「CMYだけ」で刷った2枚(D65 で合わせる)。条件等色の定番
+let grayPair = null;
+export function metamericGrays(k = 0.5) {
+  if (grayPair) return grayPair;
+  const m = printGamut().model, target = xyzToOklab(m.xyz([0, 0, 0, k]));
+  const d = (c) => { const p = xyzToOklab(m.xyz([...c, 0])); return Math.hypot(p[0] - target[0], p[1] - target[1], p[2] - target[2]); };
+  let x = [k, k, k], bd = d(x);
+  for (const step of [0.05, 0.01, 0.002]) {
+    let moved = true;
+    while (moved) {
+      moved = false;
+      for (let j = 0; j < 3; j++) for (const s of [step, -step]) {
+        const y = x.slice(); y[j] = Math.min(1, Math.max(0, y[j] + s));
+        const e = d(y);
+        if (e < bd - 1e-12) { bd = e; x = y; moved = true; }
+      }
+    }
+  }
+  grayPair = { k: [0, 0, 0, k], cmy: [...x, 0], dE65: bd, rk: m.spectrum([0, 0, 0, k]), rcmy: m.spectrum([...x, 0]) };
+  return grayPair;
+}
 // 図に描く印刷の範囲: 3D=CMYの立方体の12辺(K=0)、2D=C→G→Y→R→M→B→C のベタと重ねの輪
 export function printOutline() {
   const m = printGamut().model;

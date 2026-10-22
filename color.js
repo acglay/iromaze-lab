@@ -2,6 +2,7 @@
 // 内部表現は XYZ(D65, 相対値: SDRの白 = Y 1.0 = 203 nit。HDRでは 1 を超える)。
 // 絵の具式は vendor/spectral.js(MIT)を globalThis.spectral として読み込んでおくこと。
 import { printCMYK, inkXYZ } from "./cmyk.js";
+import { reflToXYZ, getIlluminant } from "./illum.js";
 
 export const clamp01 = (x) => Math.min(1, Math.max(0, x));
 export const SDR_WHITE_NITS = 203; // ITU-R BT.2408 の基準白
@@ -189,8 +190,8 @@ export const SPACES = [
   { id: "oklch", name: "Oklch", note: "Oklabの極座標(色相は近回り)", to: (x) => toPolar(xyzToOklab(x)), from: (v) => oklabToXYZ(fromPolar(v)), hue: 2, chroma: 1 },
   { id: "ictcp", name: "ICtCp", note: "HDR用(BT.2100・PQ)", to: xyzToIctcp, from: ictcpToXYZ },
   { id: "jzazbz", name: "Jzazbz", note: "HDR用の知覚均等空間", to: xyzToJzazbz, from: jzazbzToXYZ },
-  { id: "paint", name: "絵の具式", note: "分光反射率+Kubelka-Munk(sRGB内・明るさ1まで)", paint: true },
-  { id: "ink", name: "インク式", note: "CMYKの網点の割合を直線で混ぜてコート紙に刷る(両端も刷った色)", ink: true },
+  { id: "paint", name: "絵の具式", note: "分光反射率+Kubelka-Munk(sRGB内・明るさ1まで・照明で変わる)", paint: true },
+  { id: "ink", name: "インク式", note: "CMYKの網点の割合を直線で混ぜてコート紙に刷る(両端も刷った色・照明で変わる)", ink: true },
 ];
 export const SPACE = Object.fromEntries(SPACES.map((s) => [s.id, s]));
 
@@ -201,9 +202,9 @@ export function mixXYZ(spaceId, a, b, t, g = "srgb") {
     const ca = printCMYK(a), cb = printCMYK(b);
     return inkXYZ(ca.map((v, i) => lerp(v, cb[i], Math.min(1, Math.max(0, t)))));
   }
+  if (sp.paint) return mixPaint(a, b, t); // 両端も照明しだいなので近道より先
   if (t <= 0) return a.slice();
   if (t >= 1) return b.slice();
-  if (sp.paint) return mixPaint(a, b, t);
   const va = sp.to(a, g), vb = sp.to(b, g);
   if (sp.hue !== undefined) {
     const eps = CHROMA_EPS[spaceId];
@@ -229,12 +230,17 @@ function paintColor(xyz) {
   }
   return c;
 }
+// 照明が D65 以外なら、両端も含めて「その照明の下で塗った色」(反射率 → 照明 → 色順応)
 export function mixPaint(a, b, t) {
-  if (t <= 0) return a.slice();
-  if (t >= 1) return b.slice();
-  const m = globalThis.spectral.mix([paintColor(a), 1 - t], [paintColor(b), t]);
-  return linToXYZ("srgb", m.lRGB);
+  const d65 = getIlluminant() === "d65";
+  if (t <= 0 && d65) return a.slice();
+  if (t >= 1 && d65) return b.slice();
+  const tt = Math.min(1, Math.max(0, t));
+  if (tt === 0 || tt === 1) return reflToXYZ(paintColor(tt ? b : a).R);
+  const m = globalThis.spectral.mix([paintColor(a), 1 - tt], [paintColor(b), tt]);
+  return d65 ? linToXYZ("srgb", m.lRGB) : reflToXYZ(m.R);
 }
+export const paintReflectance = (xyz) => paintColor(xyz).R;
 
 // 2色 or 3色(a → c → b)の経路。t は 0..1
 export function mixPath(spaceId, cols, t, g = "srgb") {

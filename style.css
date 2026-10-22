@@ -77,3 +77,14 @@ details a { color: #8ab4ff; }
 .row .rs { padding: 0 6px; font-size: 12px; visibility: hidden; }
 .row .rs.show { visibility: visible; }
 #pipeinfo { margin: 0 0 6px; }
+.meta { margin-top: 14px; }
+.mtab { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; table-layout: fixed; }
+.mtab th { font-weight: normal; color: #9ea3b0; padding: 2px; text-align: center; }
+.mtab th.cur { color: #fff; font-weight: bold; }
+.mtab td { padding: 2px; text-align: center; vertical-align: top; }
+.mtab td.rowh { text-align: left; color: #c8cad0; width: 4.6em; }
+.mtab td.cur { background: #2a2f45; border-radius: 6px; }
+.mpair { display: flex; height: 26px; border-radius: 5px; overflow: hidden; border: 1px solid #0008; }
+.mpair i { flex: 1; }
+.mde { font-variant-numeric: tabular-nums; }
+.mde.big { color: #ffd166; font-weight: bold; }

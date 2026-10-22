@@ -5,6 +5,7 @@ globalThis.spectral = require("../vendor/spectral.js");
 const C = await import("../color.js");
 const D = await import("../device.js");
 const K = await import("../cmyk.js");
+const I = await import("../illum.js");
 
 let fail = 0;
 const ok = (cond, msg) => {
@@ -160,6 +161,38 @@ for (const [nm, a, b] of [...PAIRS, ["白×黒", "#ffffff", "#000000"], ["白×�
   const L = 0.62, Cc = 0.11;
   const ring = C.oklchToXYZ(L, Cc, 40), back = C.oklch(ring);
   ok(Math.abs(back.L - L) < 1e-6 && Math.abs(back.C - Cc) < 1e-6 && Math.abs(back.h - 40) < 1e-4, "Oklch → XYZ → Oklch の往復(ピッカー用)");
+}
+
+// 13. 照明と色順応
+{
+  // spectral.js の等色関数(×D65)を D65 の表で割って取り出した等色関数 → CIE のスペクトル軌跡の表と一致するか(D65 表の書き写しの確認)
+  const c = I.cmf();
+  let worst = 0;
+  for (const [l, x, y] of C.LOCUS) { const i = (l - 380) / 10, s = c[i][0] + c[i][1] + c[i][2]; worst = Math.max(worst, Math.hypot(c[i][0] / s - x, c[i][1] / s - y)); }
+  ok(worst < 0.001, `D65 で重みを外した等色関数の色度 = CIE 軌跡の表(最大差 ${worst.toFixed(4)})`);
+  const xy = (id) => { const w = I.illumWhite(id), s = w[0] + w[1] + w[2]; return [w[0] / s, w[1] / s]; };
+  for (const [id, ref] of [["d65", [0.3127, 0.329]], ["d50", [0.3457, 0.3585]], ["a", [0.4476, 0.4074]]]) {
+    const p = xy(id);
+    ok(Math.hypot(p[0] - ref[0], p[1] - ref[1]) < 0.0015, `${I.ILLUM[id].name} の白 = (${p[0].toFixed(4)}, ${p[1].toFixed(4)}) 規格 (${ref.join(", ")})`);
+  }
+  const R = new globalThis.spectral.Color([200, 80, 30]).R;
+  ok(dE(I.reflToXYZ(R, "d65"), new globalThis.spectral.Color(R).XYZ) < 1e-9, "D65 の下の反射色 = spectral.js の XYZ(従来と同じ)");
+  const flat = new Array(38).fill(1);
+  // 白の出どころが2つある(spectral.js の等色関数×D65 と sRGB の行列)ので、差は小数3〜4桁目まで出る
+  const wd = Math.max(...I.ILLUMINANTS.map((il) => dE(I.reflToXYZ(flat, il.id), C.WHITE)));
+  ok(wd < 0.002, `どの照明でも、色順応のあと真っ白な紙(反射率1)は D65 の白(最大 ΔEok ${wd.toFixed(4)})`);
+  const g = K.metamericGrays();
+  const dg = (id) => dE(I.reflToXYZ(g.rk, id), I.reflToXYZ(g.rcmy, id));
+  ok(dg("d65") < 0.005 && dg("a") > 10 * dg("d65") && dg("tri") > 10 * dg("d65"), `条件等色: 墨だけの灰色 vs CMYの灰色 ΔEok D65 ${dg("d65").toFixed(4)} → A ${dg("a").toFixed(3)} / 三波長 ${dg("tri").toFixed(3)}`);
+  I.setIlluminant("a");
+  const rgbSame = dE(C.mixXYZ("rgb", H("#0000ff"), H("#ffff00"), 0.5), C.mixXYZ("rgb", H("#0000ff"), H("#ffff00"), 0.5)) === 0;
+  const paintA = C.mixPaint(H("#0000ff"), H("#ffff00"), 0.5);
+  const endA = C.mixXYZ("paint", H("#2e8b57"), H("#ffff00"), 0), kneeA = C.mixPath("paint", [H("#ff0000"), H("#0000ff"), H("#2e8b57")], 0.5);
+  const refA = I.reflToXYZ(C.paintReflectance(H("#2e8b57")));
+  I.setIlluminant("d65");
+  const paint65 = C.mixPaint(H("#0000ff"), H("#ffff00"), 0.5);
+  ok(dE(endA, refA) < 1e-9 && dE(kneeA, refA) < 1e-9 && dE(endA, H("#2e8b57")) > 0.01, `照明 A では絵の具式の端点・3色の折れ目も「Aの下で塗った色」(元の色との差 ${dE(endA, H("#2e8b57")).toFixed(3)})`);
+  ok(rgbSame && dE(paintA, paint65) > 0.01, `照明は反射色だけに効く(絵の具の青+黄 D65→A で ΔEok ${dE(paintA, paint65).toFixed(3)}、RGBは不変)`);
 }
 
 // 10. 色度図: スペクトル軌跡の表を独立な近似(Wyman, Sloan & Shirley 2013 の等色関数フィット)と突き合わせる

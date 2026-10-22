@@ -1,8 +1,9 @@
-import { SPACES, SPACE, GAMUTS, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, oklch, oklchToXYZ, autoThird, clipTo, chromaReduce, inGamut, evenness } from "./color.js";
+import { SPACES, SPACE, GAMUTS, paintReflectance, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, xyzToOklab, oklch, oklchToXYZ, autoThird, clipTo, chromaReduce, inGamut, evenness } from "./color.js";
 import { DEVICES, DEVICE, GAMUT_MAPS, TONE_MAPS, ENVS, CVDS, pipeline, deviceOut } from "./device.js";
 import { screen, initHdr, paintBand, paintFlags, cssColor } from "./present.js";
 import { MODES, VIEW_PRESETS, view, setPreset, renderView, bindView, rgbOutline } from "./view.js";
-import { printOutline, toCMYK } from "./cmyk.js";
+import { printOutline, toCMYK, metamericGrays, printGamut } from "./cmyk.js";
+import { ILLUMINANTS, setIlluminant, reflToXYZ } from "./illum.js";
 
 const PRESET_GROUPS = [
   ["補色ペア", [
@@ -42,7 +43,7 @@ const DEFAULT = { ...PRESETS[0], name: "青×黄+近回り", use3: true, arc: "n
 const FAV_KEY = "iromaze-lab-favs-v1";
 const METHOD_COL = { rgb: "#ffffff", lin: "#9ad0ff", hsl: "#ff7ad9", lab: "#b6f36a", lch: "#6af3c0", oklab: "#4fd1ff", oklch: "#3d8bff", ictcp: "#ffe14d", jzazbz: "#ff8a4d", paint: "#ffa94d", ink: "#c792ff" };
 // 見え方の設定(リセットでは変えない「モード」)。URLには既定値と違うものだけ書く
-const MODE_DEFAULTS = { methods: ["rgb", "oklab", "paint"], gamut: "srgb", device: "ideal", gm: "chroma", tm: "rolloff", env: "dark", cvd: "none", scr: "auto" };
+const MODE_DEFAULTS = { methods: ["rgb", "oklab", "paint"], gamut: "srgb", device: "ideal", gm: "chroma", tm: "rolloff", env: "dark", cvd: "none", scr: "auto", il: "d65" };
 const K_DEFAULT = 1;
 
 const $ = (id) => document.getElementById(id);
@@ -64,7 +65,7 @@ const opts = () => ({ device: state.device, gamut: state.gamut, gamutMap: state.
 }
 
 // ---- URLハッシュ(#a=0000ff&b=ffff00&c=auto&g=p3&dev=srgb …) ----
-const HASH_KEYS = { gamut: "g", device: "dev", gm: "gm", tm: "tm", env: "env", cvd: "cvd", scr: "scr" };
+const HASH_KEYS = { gamut: "g", device: "dev", gm: "gm", tm: "tm", env: "env", cvd: "cvd", scr: "scr", il: "il" };
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   const hex = (v) => (v && /^[0-9a-f]{6}$/i.test(v) ? "#" + v.toLowerCase() : null);
@@ -170,6 +171,7 @@ function renderBands() {
   const dev = DEVICE[state.device];
   const parts = [`作業色域 ${GAMUTS[state.gamut].name}`, `→ ${dev.name}`];
   if (state.cvd !== "none") parts.push(`→ 色覚 ${CVDS.find((c) => c.id === state.cvd).name}`);
+  if (state.il !== "d65") parts.push(`(絵の具・インクは ${ILLUMINANTS.find((i) => i.id === state.il).name} の下)`);
   if (state.env !== "dark") parts.push(`→ ${ENVS.find((e) => e.id === state.env).name}`);
   parts.push(`→ この画面(${hdr ? "HDR" : screen.p3 ? "P3" : "sRGB"})`);
   if (scale < 1) parts.push(`※HDRを1/${(1 / scale).toFixed(1)}に暗くして表示`);
@@ -361,7 +363,7 @@ function syncInputs() {
   }
   syncPicker();
   $("use3").checked = state.use3; $("c3row").hidden = !state.use3;
-  for (const [id, key] of [["gamut", "gamut"], ["device", "device"], ["gm", "gm"], ["tm", "tm"], ["env", "env"], ["cvd", "cvd"], ["scr", "scr"]])
+  for (const [id, key] of [["gamut", "gamut"], ["device", "device"], ["gm", "gm"], ["tm", "tm"], ["env", "env"], ["cvd", "cvd"], ["scr", "scr"], ["il", "il"]])
     document.querySelectorAll(`#${id} button`).forEach((b) => b.classList.toggle("on", b.dataset.v === state[key]));
   document.querySelectorAll("#methods .chip").forEach((b) => b.classList.toggle("off", !state.methods.includes(b.dataset.m)));
   document.querySelectorAll("#krows .row").forEach((row) => {
@@ -375,10 +377,34 @@ function syncInputs() {
     (screen.hdr ? (screen.gpu ? "(WebGPUで1を超える明るさを出せる)" : "(WebGPUのHDR出力が使えないのでSDRで再現)") : "") +
     "。この画面より広い色・明るい色は、画面側で切られて見える。";
 }
+// ---- 照明と条件等色の表 ----
+// 行: A/B/C を「絵の具で塗った」と「印刷した」(どちらも D65 でその色に合わせたもの)+ 墨だけの灰色 vs CMYの灰色
+function renderMeta() {
+  const rows = [];
+  for (const n of state.use3 ? ["a", "b", "c"] : ["a", "b"]) {
+    const x = rgbToXYZ(state.gamut, hexToRgb(state[n]));
+    rows.push({ name: n.toUpperCase(), r1: paintReflectance(x), r2: printGamut().model.spectrum(toCMYK(x).cmyk) });
+  }
+  const g = metamericGrays();
+  rows.push({ name: "灰色 墨/CMY", r1: g.rk, r2: g.rcmy, gray: true });
+  const head = `<tr><th></th>${ILLUMINANTS.map((il) => `<th class="${il.id === state.il ? "cur" : ""}">${il.name.replace("(近似)", "")}</th>`).join("")}</tr>`;
+  const body = rows.map((r) => {
+    const cells = ILLUMINANTS.map((il) => {
+      const p = reflToXYZ(r.r1, il.id), q = reflToXYZ(r.r2, il.id);
+      const a = xyzToOklab(p), b = xyzToOklab(q), d = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+      return `<td class="${il.id === state.il ? "cur" : ""}"><div class="mpair"><i style="background:${cssColor(p)}"></i><i style="background:${cssColor(q)}"></i></div><span class="mde ${d >= 0.02 ? "big" : ""}">${d.toFixed(3)}</span></td>`;
+    }).join("");
+    return `<tr><td class="rowh">${r.gray ? "灰色<br><small>墨だけ / CMY</small>" : r.name + "<br><small>塗る / 刷る</small>"}</td>${cells}</tr>`;
+  }).join("");
+  $("metatable").innerHTML = `<table class="mtab">${head}${body}</table>`;
+}
+
 function update() {
+  setIlluminant(state.il);
   writeHash();
   renderBands();
   renderCube();
+  renderMeta();
 }
 // 方式の数や画面の出し方が変わったら帯を作り直す(WebGPU と 2D の canvas は使い回せない)
 let builtKey = "";
@@ -485,6 +511,7 @@ segment("gamut", Object.values(GAMUTS), "gamut", () => picking && loadPick(picki
 segment("gm", GAMUT_MAPS, "gm");
 segment("tm", TONE_MAPS, "tm");
 segment("env", ENVS, "env");
+segment("il", ILLUMINANTS, "il");
 segment("scr", [{ id: "auto", name: "この画面の力で", note: "P3・HDRに対応していればそのまま出す" }, { id: "sdr", name: "SDRで再現", note: "HDRでも、上限を白にして暗く縮めて見せる" }], "scr");
 segment("device", DEVICES, "device");
 segment("cvd", CVDS, "cvd");
