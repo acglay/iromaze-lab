@@ -28,7 +28,7 @@ h2 { font-size: 13px; color: #9ea3b0; margin: 12px 0 6px; }
 .stats { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .stats .txt { white-space: nowrap; }
 .stats .pct { width: 3em; text-align: right; }
-.sw { width: 22px; height: 22px; border-radius: 4px; border: 1px solid #555; flex: none; }
+.sw { width: 22px; height: 22px; border-radius: 4px; border: 1px solid #555; flex: none; cursor: pointer; }
 .meter { flex: 1; min-width: 30px; height: 8px; background: #2a2c33; border-radius: 4px; overflow: hidden; }
 .meter i { display: block; height: 100%; background: linear-gradient(90deg, #888, #f5a623); }
 .num { font-variant-numeric: tabular-nums; }
@@ -57,7 +57,7 @@ input[type="range"] { touch-action: pan-y; }
 .third { display: block; margin: 10px 0 6px; font-size: 14px; }
 details { margin-top: 14px; font-size: 13px; line-height: 1.6; color: #c8cad0; }
 details a { color: #8ab4ff; }
-#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #000c; padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: 92vw; text-align: center; background: #000c; padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
 #toast.show { opacity: 1; }
 .opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; font-size: 13px; }
 .opt > span:first-child { flex: none; }

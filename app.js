@@ -1,7 +1,8 @@
 import { SPACES, SPACE, GAMUTS, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, oklch, autoThird, clipTo } from "./color.js";
 import { DEVICES, DEVICE, GAMUT_MAPS, TONE_MAPS, ENVS, CVDS, pipeline } from "./device.js";
 import { screen, initHdr, paintBand, paintFlags, cssColor } from "./present.js";
-import { MODES, VIEW_PRESETS, view, setPreset, renderView, bindView } from "./view.js";
+import { MODES, VIEW_PRESETS, view, setPreset, renderView, bindView, rgbOutline } from "./view.js";
+import { printOutline, toCMYK } from "./cmyk.js";
 
 const PRESET_GROUPS = [
   ["補色ペア", [
@@ -39,7 +40,7 @@ const PRESET_GROUPS = [
 const PRESETS = PRESET_GROUPS.flatMap(([, ps]) => ps);
 const DEFAULT = { ...PRESETS[0], name: "青×黄+近回り", use3: true, arc: "near" }; // 開いた直後は3色(自動・近回り)
 const FAV_KEY = "iromaze-lab-favs-v1";
-const METHOD_COL = { rgb: "#ffffff", lin: "#9ad0ff", hsl: "#ff7ad9", lab: "#b6f36a", lch: "#6af3c0", oklab: "#4fd1ff", oklch: "#3d8bff", ictcp: "#ffe14d", jzazbz: "#ff8a4d", paint: "#ffa94d" };
+const METHOD_COL = { rgb: "#ffffff", lin: "#9ad0ff", hsl: "#ff7ad9", lab: "#b6f36a", lch: "#6af3c0", oklab: "#4fd1ff", oklch: "#3d8bff", ictcp: "#ffe14d", jzazbz: "#ff8a4d", paint: "#ffa94d", ink: "#c792ff" };
 // 見え方の設定(リセットでは変えない「モード」)。URLには既定値と違うものだけ書く
 const MODE_DEFAULTS = { methods: ["rgb", "oklab", "paint"], gamut: "srgb", device: "ideal", gm: "chroma", tm: "rolloff", env: "dark", cvd: "none", scr: "auto" };
 const K_DEFAULT = 1;
@@ -102,7 +103,7 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.add("show");
   clearTimeout(toast.tid);
-  toast.tid = setTimeout(() => t.classList.remove("show"), 1600);
+  toast.tid = setTimeout(() => t.classList.remove("show"), msg.length > 30 ? 4000 : 1600);
 }
 
 // ---- 帯のデータ: 混ぜる → 出力デバイス → 見る人 ----
@@ -155,7 +156,8 @@ function renderBands() {
       paintFlags(el.querySelector(".flags"), d.flags);
       const ratio = d.ends > 1e-4 ? d.min / d.ends : 1;
       el.querySelector(".sw").style.background = cssColor(d.mid, scale);
-      el.querySelector(".sw").title = `真ん中(sRGB表記)${rgbToHex(xyzToRgb("srgb", d.mid))}`;
+      el.querySelector(".sw").title = "押すと真ん中の色のsRGB値と印刷用CMYK";
+      el.querySelector(".sw")._mid = d.raw[N / 2];
       el.querySelector(".txt").textContent = `真ん中C=${d.midC.toFixed(3)} 最小C=${d.min.toFixed(3)}`;
       el.querySelector(".meter i").style.width = Math.min(100, ratio * 100) + "%";
       el.querySelector(".pct").textContent = d.ends > 1e-4 ? `${Math.round(ratio * 100)}%` : "(灰色)";
@@ -173,6 +175,15 @@ function renderBands() {
   $("pipeinfo").textContent = parts.join(" ");
 }
 
+// 真ん中の色見本を押す → sRGB 表記と、刷るならの CMYK(混ぜた結果そのもの。色覚・映り込みは通さない)
+$("bands").addEventListener("click", (e) => {
+  const sw = e.target.closest(".sw");
+  if (!sw?._mid) return;
+  const { cmyk, dE } = toCMYK(sw._mid);
+  const pct = cmyk.map((v) => Math.round(v * 100));
+  toast(`真ん中 ${rgbToHex(xyzToRgb("srgb", sw._mid))}(sRGB)/ 印刷なら C${pct[0]} M${pct[1]} Y${pct[2]} K${pct[3]}` + (dE > 0.02 ? `(刷れない色。差ΔEok ${dE.toFixed(2)})` : ""));
+});
+
 // ---- 色の空間の図(view.js)----
 const HINTS = {
   rgb: (g) => `${g}の数値の立方体(黒が下・白が上)。点線=灰色の軸。補色を直線で結ぶとこの軸を突きぬける。「上から」で見ると色相の六角形。`,
@@ -186,9 +197,10 @@ function renderCube() {
     alpha,
     paths: state.methods.map((id) => ({ id, color: METHOD_COL[id], pts: Array.from({ length: 49 }, (_, i) => mixPath(id, c, i / 48, state.gamut)) })),
   }));
-  renderView($("cube"), { gamut: state.gamut, devGamut: dev.gamut, layers, ends: activeVariants().at(-1).cols(), p3: screen.p3 });
+  const devOutline = dev.print ? printOutline() : dev.gamut && dev.gamut !== state.gamut ? rgbOutline(dev.gamut) : null;
+  renderView($("cube"), { gamut: state.gamut, dev: devOutline, layers, ends: activeVariants().at(-1).cols(), p3: screen.p3 });
   $("cubehint").textContent = HINTS[view.mode](GAMUTS[state.gamut].name) +
-    (dev.gamut && dev.gamut !== state.gamut ? ` 橙の破線=${dev.name}が出せる範囲。` : "") +
+    (devOutline ? ` 橙の破線=${dev.name}${dev.print ? "(CMYのベタと重ねの輪/K=0の立体)" : ""}が出せる範囲。` : "") +
     (view.mode === "xy" || view.mode === "uv" ? " ドラッグで移動・ピンチで拡大。" : " ドラッグで回転・ピンチで拡大。");
   // 凡例(押すとその方式だけ強調)
   const lg = $("vlegend");

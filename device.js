@@ -1,6 +1,7 @@
 // 混ぜた色が「どの画面で・どんな部屋で・どんな目で」見られるかの再現。
 // すべて XYZ(SDRの白 = Y 1.0)の上で行う。順番: 明るさの上限 → 色域 → 映り込み → 色覚
-import { xyzToLin, linToXYZ, clipTo, chromaReduce, WHITE, SDR_WHITE_NITS } from "./color.js";
+import { xyzToLin, linToXYZ, clipTo, chromaReduce, oklch, WHITE, SDR_WHITE_NITS } from "./color.js";
+import { toPrint, inPrintGamut, printGamut } from "./cmyk.js";
 
 // peak = 出せる最大の明るさ(SDRの白=1)。ideal は作業色域そのまま(何もしない)
 export const DEVICES = [
@@ -10,6 +11,7 @@ export const DEVICES = [
   { id: "r2020", name: "Rec.2020テレビ(SDR)", gamut: "rec2020", peak: 1 },
   { id: "hdrphone", name: "HDRスマホ(P3・800nit)", gamut: "p3", peak: 800 / SDR_WHITE_NITS },
   { id: "hdr10", name: "HDR10テレビ(2020・1000nit)", gamut: "rec2020", peak: 1000 / SDR_WHITE_NITS },
+  { id: "print", name: "印刷(CMYK・コート紙)", gamut: null, peak: 1, print: true },
 ];
 export const DEVICE = Object.fromEntries(DEVICES.map((d) => [d.id, d]));
 
@@ -49,6 +51,12 @@ export function toneMap(xyz, peak, mode) {
 // 1色を出力デバイスに通す。flags: はみ出しの種類(帯の下の目印用)
 export function deviceOut(xyz, o) {
   const dev = DEVICE[o.device];
+  if (dev.print) {
+    // 紙より明るい色は出せない(上限超え扱い)、インクで出せない色は色域外
+    const L = oklch(xyz).L;
+    const flags = { outGamut: !inPrintGamut(xyz), overPeak: L > printGamut().Lmax + 0.004 };
+    return { xyz: toPrint(xyz, o.gamutMap === "clip" ? "clip" : "chroma"), flags };
+  }
   const g = dev.gamut || o.gamut;
   const peak = dev.peak;
   const lin = xyzToLin(g, xyz);

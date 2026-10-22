@@ -4,6 +4,7 @@ const require = createRequire(import.meta.url);
 globalThis.spectral = require("../vendor/spectral.js");
 const C = await import("../color.js");
 const D = await import("../device.js");
+const K = await import("../cmyk.js");
 
 let fail = 0;
 const ok = (cond, msg) => {
@@ -23,24 +24,26 @@ const name = (id) => C.SPACE[id].name;
 // 1. 各空間の往復(絵の具式以外)。sRGB・P3・Rec.2020 の色と HDR(白の4倍)で
 {
   const samples = [H("#ff0000"), H("#00ff00", "rec2020"), H("#0000ff", "p3"), H("#808080"), H("#c87533"), H("#ffffff").map((v) => v * 4)];
-  for (const sp of C.SPACES.filter((s) => !s.paint)) {
+  for (const sp of C.SPACES.filter((s) => !s.paint && !s.ink)) {
     let worst = 0;
     for (const g of ["srgb", "p3", "rec2020"]) for (const x of samples) worst = Math.max(worst, dE(sp.from(sp.to(x, g), g), x));
     ok(worst < 1e-4, `往復 [${sp.name}] 最大ΔEok=${worst.toExponential(1)}`);
   }
 }
 
-// 2. 白+白=白、同じ色どうし=その色(全空間・3作業色域)
+// 2. 白+白=白、同じ色どうし=その色(全空間・3作業色域)。インク式は「刷った色」が基準(白+白=紙)
 const SAMPLES = ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#00ffff", "#ff00ff", "#000000", "#808080", "#c87533", "#3a6ea5", "#7fbf7f", "#ffffff"];
+const printed = (x) => K.inkXYZ(K.printCMYK(x));
 for (const id of IDS) {
-  const w = Math.max(...TS.map((t) => dE(C.mixXYZ(id, C.WHITE, C.WHITE, t), C.WHITE)));
+  const ref = (x) => (id === "ink" ? printed(x) : x);
+  const w = Math.max(...TS.map((t) => dE(C.mixXYZ(id, C.WHITE, C.WHITE, t), ref(C.WHITE))));
   let worst = 0, at = "";
   for (const g of ["srgb", "p3", "rec2020"]) for (const hex of SAMPLES) for (const t of TS) {
     const x = id === "paint" ? H(hex) : H(hex, g);
-    const d = dE(C.mixXYZ(id, x, x, t, g), x);
+    const d = dE(C.mixXYZ(id, x, x, t, g), ref(x));
     if (d > worst) { worst = d; at = `${g} ${hex}`; }
   }
-  ok(w < 0.01 && worst < 0.02, `白+白=白 ΔE=${w.toFixed(4)} / 同色=その色 最大ΔE=${worst.toFixed(4)} ${at} [${name(id)}]`);
+  ok(w < 0.01 && worst < 0.02, `白+白=${id === "ink" ? "紙" : "白"} ΔE=${w.toFixed(4)} / 同色=その色 最大ΔE=${worst.toFixed(4)} ${at} [${name(id)}]`);
 }
 
 // 3. 補色ペア: RGB直線の中間は彩度が下がる(両端の平均Cの半分未満)/中間の値を表示
@@ -120,6 +123,31 @@ for (const [nm, a, b] of [...PAIRS, ["白×黒", "#ffffff", "#000000"], ["白×�
   const blk = D.viewer([0, 0, 0], { ...base, cvd: "none", env: "sun" });
   const cr = (1 + 0.15) / 0.15;
   ok(Math.abs(blk[1] - 0.15) < 1e-9, `屋外の日なた: 黒が Y=0.15 に浮く(コントラスト比 ${cr.toFixed(1)}:1)`);
+}
+
+// 11. 印刷(CMYK): インクの曲線は ISO 12647-2 PC1 のベタ5色+CMY+G に当てはめ、R/B の重ね刷りで答え合わせ
+{
+  const m = K.makeModel();
+  const lab = (c) => C.xyzToLab(m.xyz(c));
+  const T = [["紙", [0, 0, 0, 0], [95, 0, -2], 6], ["C", [1, 0, 0, 0], [55, -37, -50], 6], ["M", [0, 1, 0, 0], [48, 74, -3], 6], ["Y", [0, 0, 1, 0], [89, -5, 93], 6], ["K", [0, 0, 0, 1], [16, 0, 0], 6],
+    ["CMY", [1, 1, 1, 0], [23, 0, 0], 6], ["G=C+Y", [1, 0, 1, 0], [50, -65, 27], 8], ["R=M+Y(答え合わせ)", [0, 1, 1, 0], [47, 68, 48], 10], ["B=C+M(答え合わせ)", [1, 1, 0, 0], [24, 22, -46], 12]];
+  for (const [nm, c, t, tol] of T) {
+    const l = lab(c), e = Math.hypot(...l.map((v, i) => v - t[i]));
+    ok(e < tol, `印刷 ${nm}: Lab ${l.map((v) => v.toFixed(1)).join(",")} 目標 ${t.join(",")} ΔE76=${e.toFixed(1)}`);
+  }
+  const G = K.printGamut();
+  const outs = ["#0000ff", "#ff0000", "#00ff00", "#ffff00", "#00ffff", "#ff00ff", "#ffffff"].map((h) => H(h));
+  for (const mode of ["chroma", "clip"]) {
+    const mapped = outs.map((x) => K.toPrint(x, mode));
+    const allIn = mapped.every((x) => K.inPrintGamut(x, 0.006));
+    const hueOk = outs.every((x, i) => { const a = C.oklch(x), b = C.oklch(mapped[i]); if (a.C < 0.02 || b.C < 0.01) return true; let d = Math.abs(a.h - b.h); if (d > 180) d = 360 - d; return d < 2; });
+    ok(allIn && hueOk, `印刷に収める(${mode}): sRGBの原色・白はすべて刷れる範囲に入り、色相は2°以内`);
+  }
+  const inside = G.samples.filter((_, i) => i % 97 === 0).map((s) => s.xyz);
+  ok(inside.every((x) => dE(K.toPrint(x), x) < 1e-9), `刷れる色(${inside.length}個)は印刷に収めても変わらない`);
+  const rt = Math.max(...inside.slice(0, 40).map((x) => K.toCMYK(x).dE));
+  ok(rt < 0.01, `刷れる色 → CMYK → 刷った色 の往復 最大ΔEok=${rt.toFixed(4)}`);
+  ok(G.Lmax > 0.9 && G.Lmin < 0.35 && C.oklch(H("#0000ff")).C > C.oklch(K.toPrint(H("#0000ff"))).C, `印刷の明るさ L=${G.Lmin.toFixed(3)}〜${G.Lmax.toFixed(3)}(紙〜黒)、sRGBの青は刷ると彩度が下がる`);
 }
 
 // 10. 色度図: スペクトル軌跡の表を独立な近似(Wyman, Sloan & Shirley 2013 の等色関数フィット)と突き合わせる
