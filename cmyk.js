@@ -116,15 +116,17 @@ export function printGamut() {
       row[j] = vp + ((vn - vp) * (j - prev)) / (next - prev);
     }
   }
-  // 補間するとマスの山がならされて、山を作った見本自身が外に出る → 周り8マスの最大で広げてから使う
-  const dil = cmax.map((row, i) => row.map((_, j) => {
-    let m = 0;
-    for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
-      const ii = i + di;
-      if (ii >= 0 && ii < LB) m = Math.max(m, cmax[ii][(j + dj + HB) % HB]);
+  // 補間するとマスの山がならされて、山を作った見本自身が外に出る → 周り2マスの最大で広げてから、3×3 の平均でならす
+  // (平均に使うマスはどれも元のマスから2マス以内なので、広げた値は元の見本の彩度を下回らない。ならさないと階段状になる)
+  const around = (tab, r, f) => tab.map((row, i) => row.map((_, j) => {
+    const vs = [];
+    for (let di = -r; di <= r; di++) for (let dj = -r; dj <= r; dj++) {
+      const ii = Math.min(LB - 1, Math.max(0, i + di));
+      vs.push(tab[ii][(j + dj + HB) % HB]);
     }
-    return m;
+    return f(vs);
   }));
+  const dil = around(around(cmax, 2, (v) => Math.max(...v)), 1, (v) => v.reduce((a, b) => a + b) / v.length);
   GAMUT = { model, samples, Lmin, Lmax, cmax: dil };
   return GAMUT;
 }

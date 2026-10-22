@@ -1,5 +1,5 @@
 import { SPACES, SPACE, GAMUTS, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, oklch, oklchToXYZ, autoThird, clipTo, chromaReduce, inGamut, evenness } from "./color.js";
-import { DEVICES, DEVICE, GAMUT_MAPS, TONE_MAPS, ENVS, CVDS, pipeline } from "./device.js";
+import { DEVICES, DEVICE, GAMUT_MAPS, TONE_MAPS, ENVS, CVDS, pipeline, deviceOut } from "./device.js";
 import { screen, initHdr, paintBand, paintFlags, cssColor } from "./present.js";
 import { MODES, VIEW_PRESETS, view, setPreset, renderView, bindView, rgbOutline } from "./view.js";
 import { printOutline, toCMYK } from "./cmyk.js";
@@ -196,12 +196,18 @@ function renderCube() {
   const dev = DEVICE[state.device];
   const layers = (state.use3 ? [[VARIANTS[0].cols(), 0.3], [VARIANTS[1].cols(), 1]] : [[VARIANTS[0].cols(), 1]]).map(([c, alpha]) => ({
     alpha,
-    paths: state.methods.map((id) => ({ id, color: METHOD_COL[id], pts: Array.from({ length: 49 }, (_, i) => mixPath(id, c, i / 48, state.gamut)) })),
+    paths: state.methods.map((id) => {
+      // 太線=デバイスが出す色、細い点線=混ぜた色そのまま(理想デバイスでは同じなので点線は省く)
+      const raw = Array.from({ length: 49 }, (_, i) => mixPath(id, c, i / 48, state.gamut));
+      if (dev.id === "ideal") return { id, color: METHOD_COL[id], pts: raw };
+      return { id, color: METHOD_COL[id], raw, pts: raw.map((x) => deviceOut(x, opts()).xyz) };
+    }),
   }));
   const devOutline = dev.print ? printOutline() : dev.gamut && dev.gamut !== state.gamut ? rgbOutline(dev.gamut) : null;
   renderView($("cube"), { gamut: state.gamut, dev: devOutline, layers, ends: activeVariants().at(-1).cols(), p3: screen.p3 });
   $("cubehint").textContent = HINTS[view.mode](GAMUTS[state.gamut].name) +
     (devOutline ? ` 橙の破線=${dev.name}${dev.print ? "(CMYのベタと重ねの輪/K=0の立体)" : ""}が出せる範囲。` : "") +
+    (dev.id !== "ideal" ? " 太線=デバイスが実際に出す色、細い点線=混ぜた色そのまま。" : "") +
     (view.mode === "xy" || view.mode === "uv" ? " ドラッグで移動・ピンチで拡大。" : " ドラッグで回転・ピンチで拡大。");
   // 凡例(押すとその方式だけ強調)
   const lg = $("vlegend");

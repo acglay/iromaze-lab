@@ -143,6 +143,8 @@ for (const [nm, a, b] of [...PAIRS, ["白×黒", "#ffffff", "#000000"], ["白×�
     const hueOk = outs.every((x, i) => { const a = C.oklch(x), b = C.oklch(mapped[i]); if (a.C < 0.02 || b.C < 0.01) return true; let d = Math.abs(a.h - b.h); if (d > 180) d = 360 - d; return d < 2; });
     ok(allIn && hueOk, `印刷に収める(${mode}): sRGBの原色・白はすべて刷れる範囲に入り、色相は2°以内`);
   }
+  const outN = G.samples.filter((s) => !K.inPrintGamut(s.xyz)).length;
+  ok(outN === 0, `刷れる見本(${G.samples.length}個)はすべて色域の内側と判定される(外 ${outN} 個)`);
   const inside = G.samples.filter((_, i) => i % 97 === 0).map((s) => s.xyz);
   ok(inside.every((x) => dE(K.toPrint(x), x) < 1e-9), `刷れる色(${inside.length}個)は印刷に収めても変わらない`);
   const rt = Math.max(...inside.slice(0, 40).map((x) => K.toCMYK(x).dE));

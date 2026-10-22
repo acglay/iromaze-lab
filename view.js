@@ -114,7 +114,7 @@ function gamutEdges(g) {
 }
 const CORNER_LABEL = ["黒", "赤", "緑", "黄", "青", "マゼンタ", "シアン", "白"];
 
-// scene = { gamut, dev: { edges, ring } | null(作業色域と同じなら null), layers: [{ alpha, paths: [{ id, color, pts }] }], ends: [xyz], p3 }
+// scene = { gamut, dev: { edges, ring } | null(作業色域と同じなら null), layers: [{ alpha, paths: [{ id, color, pts, raw? }] }], ends: [xyz], p3 }
 export function renderView(cv, scene) {
   const w = Math.round(cv.clientWidth * devicePixelRatio), h = Math.round(cv.clientHeight * devicePixelRatio);
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
@@ -176,9 +176,11 @@ export function renderView(cv, scene) {
       }
     }
   }
-  // 混色の経路(注目中の方式以外は薄く)
+  // 混色の経路(注目中の方式以外は薄く)。p.raw があれば「混ぜた色そのまま」を細い点線で、
+  // p.pts(デバイスが出す色)を太線で重ねる
   for (const layer of scene.layers) for (const p of layer.paths) {
     const dim = view.focus && view.focus !== p.id ? 0.15 : 1;
+    if (p.raw) line(p.raw, p.color, { width: 1.2, dash: [2, 3], alpha: 0.75 * layer.alpha * dim });
     line(p.pts, "#000", { width: 4, alpha: 0.55 * layer.alpha * dim });
     line(p.pts, p.color, { width: 2.2, alpha: layer.alpha * dim });
     const mid = p.pts[Math.floor(p.pts.length / 2)];
