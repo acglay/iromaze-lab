@@ -3,7 +3,8 @@ import { DEVICES, DEVICE, GAMUT_MAPS, TONE_MAPS, ENVS, CVDS, pipeline, deviceOut
 import { screen, initHdr, paintBand, paintFlags, cssColor } from "./present.js";
 import { MODES, VIEW_PRESETS, view, setPreset, renderView, bindView, rgbOutline } from "./view.js";
 import { printOutline, toCMYK, metamericGrays, printGamut } from "./cmyk.js";
-import { ILLUMINANTS, setIlluminant, reflToXYZ } from "./illum.js";
+import { ILLUMINANTS, ILLUM, setIlluminant, reflToXYZ, reflUnderSpd } from "./illum.js";
+import { cri, planck, daylight, TCS, TCS_NAMES } from "./cri.js";
 
 const PRESET_GROUPS = [
   ["補色ペア", [
@@ -397,6 +398,18 @@ function renderMeta() {
     return `<tr><td class="rowh">${r.gray ? "灰色<br><small>墨だけ / CMY</small>" : r.name + "<br><small>塗る / 刷る</small>"}</td>${cells}</tr>`;
   }).join("");
   $("metatable").innerHTML = `<table class="mtab">${head}${body}</table>`;
+  renderCri();
+}
+
+// 演色性: いまの照明の Ra・R9 と、試験色14色を「基準の光(上)/この照明(下)」で並べる
+const criCache = new Map();
+function renderCri() {
+  const il = ILLUM[state.il];
+  let r = criCache.get(il.id);
+  if (!r) { r = cri(il.spd); criCache.set(il.id, r); }
+  const ref = r.T < 5000 ? planck(r.T) : daylight(r.T);
+  const cells = TCS.map((t, i) => `<div title="${TCS_NAMES[i]}"><div class="sw2"><i style="background:${cssColor(reflUnderSpd(t, ref))}"></i><i style="background:${cssColor(reflUnderSpd(t, il.spd))}"></i></div><span class="${r.R[i] < 80 ? "low" : ""}">R${i + 1} ${Math.round(r.R[i])}</span></div>`).join("");
+  $("cri").innerHTML = `<div class="crihead">演色性(${il.name}): <b>Ra ${r.Ra.toFixed(0)}</b> ・ R9(あざやかな赤) ${r.R[8].toFixed(0)} ・ 色温度 ${Math.round(r.T)}K(基準=${r.T < 5000 ? "黒体" : "CIE昼光"})</div><div class="crigrid">${cells}</div>`;
 }
 
 function update() {

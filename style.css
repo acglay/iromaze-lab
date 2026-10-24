@@ -88,3 +88,11 @@ details a { color: #8ab4ff; }
 .mpair i { flex: 1; }
 .mde { font-variant-numeric: tabular-nums; }
 .mde.big { color: #ffd166; font-weight: bold; }
+#cri { margin-top: 8px; }
+.crihead { font-size: 13px; }
+.crihead b { font-size: 16px; }
+.crigrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 4px; }
+.crigrid div { text-align: center; font-size: 10px; color: #9ea3b0; }
+.crigrid .sw2 { height: 30px; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; border: 1px solid #0008; }
+.crigrid .sw2 i { flex: 1; }
+.crigrid .low { color: #ffd166; font-weight: bold; }

@@ -66,6 +66,16 @@ export function reflToXYZ(R, id = current, adapt = true) {
   return mul(BFD_INV, lms.map((v, i) => v * scale[i]));
 }
 export const illumWhite = (id) => setup(id).white;
+// 任意の分光分布 spd の下で反射率 R を見て、D65 の白に慣らした XYZ(演色性の見比べ用。キャッシュしない)
+export function reflUnderSpd(R, spd) {
+  const c = cmf();
+  const k = 1 / c.reduce((acc, row, i) => acc + row[1] * spd[i], 0);
+  const xyz = [0, 1, 2].map((j) => k * c.reduce((acc, row, i) => acc + row[j] * spd[i] * R[i], 0));
+  const white = [0, 1, 2].map((j) => k * c.reduce((acc, row, i) => acc + row[j] * spd[i], 0));
+  const { d65 } = setup("d65");
+  const sw = mul(BFD, white), dw = mul(BFD, d65);
+  return mul(BFD_INV, mul(BFD, xyz).map((v, i) => (v * dw[i]) / sw[i]));
+}
 
 // いまの照明(アプリ全体で1つ)。D65 のときは従来どおり(spectral.js の XYZ と一致する)
 let current = "d65";
