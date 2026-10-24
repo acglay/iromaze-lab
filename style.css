@@ -89,6 +89,16 @@ details a { color: #8ab4ff; }
 .mde { font-variant-numeric: tabular-nums; }
 .mde.big { color: #ffd166; font-weight: bold; }
 #cri { margin-top: 8px; }
+.sc { margin-top: 16px; }
+.scstage { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: 6px; }
+.scbox { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; }
+.scbox i { width: 26%; aspect-ratio: 1; }
+.scbridge { position: absolute; left: 37%; right: 37%; top: 50%; height: 6%; transform: translateY(-50%); }
+.scmatch { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.scgray { width: 34%; aspect-ratio: 1; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 4px; }
+.scgray i { width: 40%; aspect-ratio: 1; }
+.scsliders { flex: 1; min-width: 0; }
+#scResult b { color: #ffd166; }
 .crihead { font-size: 13px; }
 .crihead b { font-size: 16px; }
 .crigrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 4px; }

@@ -34,6 +34,23 @@
         <div id="metatable"></div>
         <p class="hint">反射で見える色(絵の具・印刷)は照明で変わる。目は照明の白に慣れる(Bradford の色順応)ので白い紙は白のまま。それでも反射率の形がちがう2つは、昼の光で同じに見えても別の照明でずれる=条件等色(メタメリズム)。左=絵の具で塗った/右=印刷した、数字=2つの見た目の差 ΔEok(0.02 前後から見分けがつく)。演色性 Ra は「同じ色温度の基準の光(5000K未満は黒体、以上は昼光)」と試験色14色を比べた点数(CIE 13.3。R1〜R8の平均。100が満点)。四角の上=基準の光、下=この照明。白熱電球や昼光は基準そのものなので100、ピークのとがった光ほど下がる。昼の光でもずれている行は条件等色ではなく、印刷では出せない色(インクの色域の外)。灰色の行は、墨だけで刷った灰色とCMYを混ぜて刷った灰色を昼の光で合わせたもの(条件等色の定番)。照明は帯の絵の具式・インク式にも効く。画面の色は自分で光るので変わらない。</p>
       </section>
+      <section class="sc">
+        <div class="cubehead"><b>まわりで変わる(同時対比)</b><span class="seg2" id="scT"></span></div>
+        <div class="opt"><span>背景</span><span class="seg2" id="scBg"></span></div>
+        <div class="scstage" id="scStage"><div class="scbox" id="scL"><i></i></div><div class="scbox" id="scR"><i></i></div><div class="scbridge" id="scBridge" hidden></div></div>
+        <div class="opt"><span class="hint" id="scPred"></span><button id="scLink">つなげて確かめる</button></div>
+        <div class="scmatch">
+          <div class="scgray" id="scGray"><i id="scPatch"></i></div>
+          <div class="scsliders">
+            <div class="hint">灰色の上の四角を、<b id="scSideName">左</b>の四角と同じに見えるように合わせる <span class="seg2" id="scSide"></span></div>
+            <div class="row"><span class="slabel">明るさ</span><input type="range" id="mL" min="-0.25" max="0.25" step="0.002" value="0" /><span class="sval" id="vmL"></span></div>
+            <div class="row"><span class="slabel">赤⇔緑</span><input type="range" id="mA" min="-0.12" max="0.12" step="0.002" value="0" /><span class="sval" id="vmA"></span></div>
+            <div class="row"><span class="slabel">黄⇔青</span><input type="range" id="mB" min="-0.12" max="0.12" step="0.002" value="0" /><span class="sval" id="vmB"></span></div>
+          </div>
+        </div>
+        <p class="hint" id="scResult"></p>
+        <p class="hint">左右の小さな四角はまったく同じ色。暗い背景の上では明るく、補色の背景の上では背景と反対の色み(=もとの色み側)へ寄って見える。CAM16(色の見えのモデル)が予測するのは背景の明るさによる明るさの対比だけで、色みの対比は扱わない → 色みのずれは下の「合わせる」で自分の目で測る。灰色の背景は CAM16 の標準の背景(Yb=20)と同じ明るさ。</p>
+      </section>
     </main>
     <aside class="panel">
       <div class="actions">

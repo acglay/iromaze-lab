@@ -1,10 +1,11 @@
-import { SPACES, SPACE, GAMUTS, paintReflectance, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, xyzToOklab, oklch, oklchToXYZ, autoThird, clipTo, chromaReduce, inGamut, evenness } from "./color.js";
+import { SPACES, SPACE, GAMUTS, paintReflectance, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, linToXYZ, xyzToOklab, oklabToXYZ, oklch, oklchToXYZ, autoThird, clipTo, chromaReduce, inGamut, evenness } from "./color.js";
 import { DEVICES, DEVICE, GAMUT_MAPS, TONE_MAPS, ENVS, CVDS, pipeline, deviceOut } from "./device.js";
 import { screen, initHdr, paintBand, paintFlags, cssColor } from "./present.js";
 import { MODES, VIEW_PRESETS, view, setPreset, renderView, bindView, rgbOutline } from "./view.js";
 import { printOutline, toCMYK, metamericGrays, printGamut } from "./cmyk.js";
 import { ILLUMINANTS, ILLUM, setIlluminant, reflToXYZ, reflUnderSpd } from "./illum.js";
 import { cri, planck, daylight, TCS, TCS_NAMES } from "./cri.js";
+import { cam16, matchLightness } from "./cam16.js";
 
 const PRESET_GROUPS = [
   ["補色ペア", [
@@ -412,12 +413,63 @@ function renderCri() {
   $("cri").innerHTML = `<div class="crihead">演色性(${il.name}): <b>Ra ${r.Ra.toFixed(0)}</b> ・ R9(あざやかな赤) ${r.R[8].toFixed(0)} ・ 色温度 ${Math.round(r.T)}K(基準=${r.T < 5000 ? "黒体" : "CIE昼光"})</div><div class="crigrid">${cells}</div>`;
 }
 
+// ---- まわりで変わる(同時対比)----
+// 対象=A/B/C、背景のペア=黒と白/補色と同系(明るさは対象と同じ=色みの対比だけ)/B と C
+const sc = { target: "a", bg: "bw", side: 0, link: false, m: [0, 0, 0] };
+const GRAY = linToXYZ("srgb", [0.2, 0.2, 0.2]); // Y=0.2 = CAM16 の標準の背景 Yb=20
+function scBackgrounds(t) {
+  const { L, h } = oklch(t);
+  if (sc.bg === "bw") return [linToXYZ("srgb", [0.012, 0.012, 0.012]), linToXYZ("srgb", [0.9, 0.9, 0.9])];
+  if (sc.bg === "comp") return [chromaReduce(oklchToXYZ(L, 0.13, h + 180), "srgb"), chromaReduce(oklchToXYZ(L, 0.13, h), "srgb")];
+  return [colorXYZ("b"), colorXYZ("c")].map((x) => clipTo(x, "srgb"));
+}
+function renderSc() {
+  const t = clipTo(rgbToXYZ(state.gamut, hexToRgb(state[sc.target])), "srgb");
+  const [bgL, bgR] = scBackgrounds(t);
+  $("scL").style.background = cssColor(bgL); $("scR").style.background = cssColor(bgR);
+  $("scL").firstElementChild.style.background = $("scR").firstElementChild.style.background = cssColor(t);
+  $("scBridge").hidden = !sc.link; $("scBridge").style.background = cssColor(t);
+  $("scLink").classList.toggle("on", sc.link);
+  // CAM16: 背景の明るさ Yb ごとの明度 J と、灰色(Yb=20)の上で同じ明るさに見える色
+  const Yb = (x) => Math.max(1, x[1] * 100);
+  const J = [bgL, bgR].map((b) => cam16(t.map((v) => v * 100), undefined, 64, Yb(b)).J);
+  const pred = [bgL, bgR].map((b) => matchLightness(t, Yb(b), 20));
+  const dLpred = pred.map((p) => xyzToOklab(p)[0] - xyzToOklab(t)[0]);
+  $("scPred").textContent = `CAM16の明るさ J: 左 ${J[0].toFixed(1)} / 右 ${J[1].toFixed(1)}(差 ${(J[0] - J[1]).toFixed(1)})`;
+  // 自分の目で合わせる
+  $("scGray").style.background = cssColor(GRAY);
+  const lab = xyzToOklab(t).map((v, i) => v + sc.m[i]);
+  $("scPatch").style.background = cssColor(clipTo(oklabToXYZ(lab), "srgb"));
+  $("vmL").textContent = (sc.m[0] >= 0 ? "+" : "") + sc.m[0].toFixed(3);
+  $("vmA").textContent = (sc.m[1] >= 0 ? "+" : "") + sc.m[1].toFixed(3);
+  $("vmB").textContent = (sc.m[2] >= 0 ? "+" : "") + sc.m[2].toFixed(3);
+  $("scSideName").textContent = sc.side ? "右" : "左";
+  const p = dLpred[sc.side];
+  $("scResult").innerHTML = `あなたの目: 明るさ <b>${sc.m[0] >= 0 ? "+" : ""}${sc.m[0].toFixed(3)}</b>・赤⇔緑 <b>${sc.m[1] >= 0 ? "+" : ""}${sc.m[1].toFixed(3)}</b>・黄⇔青 <b>${sc.m[2] >= 0 ? "+" : ""}${sc.m[2].toFixed(3)}</b>(Oklab)/ CAM16 の予測: 明るさ ${p >= 0 ? "+" : ""}${p.toFixed(3)}・色み 0(扱わない)`;
+  document.querySelectorAll("#scT button").forEach((b) => b.classList.toggle("on", b.dataset.v === sc.target));
+  document.querySelectorAll("#scBg button").forEach((b) => b.classList.toggle("on", b.dataset.v === sc.bg));
+  document.querySelectorAll("#scSide button").forEach((b) => b.classList.toggle("on", Number(b.dataset.v) === sc.side));
+}
+{
+  const mk = (box, items, f) => items.forEach(([v, name]) => {
+    const b = document.createElement("button"); b.textContent = name; b.dataset.v = v;
+    b.addEventListener("click", () => { f(v); renderSc(); }); $(box).appendChild(b);
+  });
+  const resetM = () => { sc.m = [0, 0, 0]; ["mL", "mA", "mB"].forEach((id) => ($(id).value = 0)); };
+  mk("scT", [["a", "A"], ["b", "B"], ["c", "C"]], (v) => { sc.target = v; resetM(); });
+  mk("scBg", [["bw", "黒と白"], ["comp", "補色と同系"], ["bc", "BとC"]], (v) => { sc.bg = v; resetM(); });
+  mk("scSide", [[0, "左"], [1, "右"]], (v) => { sc.side = Number(v); resetM(); });
+  $("scLink").addEventListener("click", () => { sc.link = !sc.link; renderSc(); });
+  ["mL", "mA", "mB"].forEach((id, i) => $(id).addEventListener("input", (e) => { sc.m[i] = Number(e.target.value); renderSc(); }));
+}
+
 function update() {
   setIlluminant(state.il);
   writeHash();
   renderBands();
   renderCube();
   renderMeta();
+  renderSc();
 }
 // 方式の数や画面の出し方が変わったら帯を作り直す(WebGPU と 2D の canvas は使い回せない)
 let builtKey = "";
