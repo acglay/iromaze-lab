@@ -1,11 +1,12 @@
-import { SPACES, SPACE, GAMUTS, paintReflectance, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, linToXYZ, xyzToOklab, oklabToXYZ, oklch, oklchToXYZ, autoThird, clipTo, chromaReduce, inGamut, evenness } from "./color.js";
+import { SPACES, SPACE, GAMUTS, paintReflectance, mixPath, hexToRgb, rgbToHex, rgbToXYZ, xyzToRgb, xyzToLin, linToXYZ, xyzToOklab, oklabToXYZ, xyzToLab, oklch, oklchToXYZ, autoThird, clipTo, chromaReduce, inGamut, evenness } from "./color.js";
 import { DEVICES, DEVICE, GAMUT_MAPS, TONE_MAPS, ENVS, CVDS, pipeline, deviceOut } from "./device.js";
-import { screen, initHdr, paintBand, paintFlags, cssColor } from "./present.js";
+import { screen, initHdr, paintBand, paintFlags, cssColor, toScreenRgb } from "./present.js";
 import { MODES, VIEW_PRESETS, view, setPreset, renderView, bindView, rgbOutline } from "./view.js";
 import { printOutline, toCMYK, metamericGrays, printGamut } from "./cmyk.js";
 import { ILLUMINANTS, ILLUM, setIlluminant, reflToXYZ, reflUnderSpd } from "./illum.js";
 import { cri, planck, daylight, TCS, TCS_NAMES } from "./cri.js";
 import { cam16, matchLightness } from "./cam16.js";
+import { ENCODINGS, BITS, quantize, tri, steps } from "./banding.js";
 
 const PRESET_GROUPS = [
   ["補色ペア", [
@@ -413,6 +414,74 @@ function renderCri() {
   $("cri").innerHTML = `<div class="crihead">演色性(${il.name}): <b>Ra ${r.Ra.toFixed(0)}</b> ・ R9(あざやかな赤) ${r.R[8].toFixed(0)} ・ 色温度 ${Math.round(r.T)}K(基準=${r.T < 5000 ? "黒体" : "CIE昼光"})</div><div class="crigrid">${cells}</div>`;
 }
 
+// ---- 段差(ビット深度)----
+const bd = { src: "kA", bits: 8, enc: "gamma", dither: false, dark: false };
+function renderBd() {
+  const dev = DEVICE[state.device];
+  const g = dev.gamut || state.gamut;
+  const A = colorXYZ("a"), B = colorXYZ("b");
+  const t0 = 0, t1 = bd.dark ? 0.25 : 1; // 暗い所を拡大 = 前から 1/4 だけ
+  const at = (t) => (bd.src === "kA" ? A.map((v) => v * t) : mixPath(state.methods[0], [A, B], t, state.gamut));
+  const cv = $("bdStrip");
+  const w = Math.max(2, Math.round(cv.clientWidth * devicePixelRatio)), h = Math.max(1, Math.round(cv.clientHeight * devicePixelRatio));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const cont = Array.from({ length: w }, (_, x) => at(t0 + ((t1 - t0) * x) / (w - 1)));
+  const opt = { gamut: g, enc: bd.enc, bits: bd.bits };
+  const qline = cont.map((x) => quantize(x, opt));
+  // 帯: ディザありはピクセルごとにノイズを変える
+  const ctx = cv.getContext("2d", screen.p3 ? { colorSpace: "display-p3" } : undefined);
+  const img = screen.p3 ? ctx.createImageData(w, h, { colorSpace: "display-p3" }) : ctx.createImageData(w, h);
+  const scale = sdrScale();
+  // ディザありは、目が細かい粒を平均して見るので、列ごとに縦に平均した光の量を「見える色」とする
+  const seen = bd.dither ? cont.map(() => [0, 0, 0]) : qline;
+  for (let x = 0; x < w; x++) {
+    const col = bd.dither ? null : toScreenRgb(qline[x], scale).map((v) => Math.round(v * 255));
+    for (let y = 0; y < h; y++) {
+      let c = col;
+      if (!c) {
+        const q = quantize(cont[x], { ...opt, noise: [0, 1, 2].map((ch) => tri(x, y, ch)) });
+        q.forEach((v, k) => (seen[x][k] += v / h));
+        c = toScreenRgb(q, scale).map((v) => Math.round(v * 255));
+      }
+      const k = (y * w + x) * 4;
+      img.data[k] = c[0]; img.data[k + 1] = c[1]; img.data[k + 2] = c[2]; img.data[k + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  // グラフ: L*(丸める前=灰、丸めた後=色)
+  const gv = $("bdGraph");
+  const gw = Math.max(2, Math.round(gv.clientWidth * devicePixelRatio)), gh = Math.max(1, Math.round(gv.clientHeight * devicePixelRatio));
+  if (gv.width !== gw || gv.height !== gh) { gv.width = gw; gv.height = gh; }
+  const gg = gv.getContext("2d");
+  gg.clearRect(0, 0, gw, gh);
+  const Lc = cont.map((x) => xyzToLab(x)[0]), Lq = seen.map((x) => xyzToLab(x)[0]);
+  const lo = Math.min(...Lc, ...Lq), hi = Math.max(...Lc, ...Lq, lo + 1e-3);
+  const pad = 6 * devicePixelRatio;
+  const Y = (L) => gh - pad - ((L - lo) / (hi - lo)) * (gh - 2 * pad);
+  const plot = (arr, color, lw) => { gg.strokeStyle = color; gg.lineWidth = lw * devicePixelRatio; gg.beginPath(); arr.forEach((L, i) => { const x = (i / (arr.length - 1)) * gw; i ? gg.lineTo(x, Y(L)) : gg.moveTo(x, Y(L)); }); gg.stroke(); };
+  plot(Lc, "#777", 1);
+  if (bd.bits) plot(Lq, "#ffd166", 1.5);
+  gg.fillStyle = "#9ea3b0"; gg.font = `${10 * devicePixelRatio}px system-ui`;
+  gg.fillText(`L* ${hi.toFixed(1)}`, 4 * devicePixelRatio, 12 * devicePixelRatio); gg.fillText(`L* ${lo.toFixed(1)}`, 4 * devicePixelRatio, gh - 4 * devicePixelRatio);
+  const st = steps(bd.dither ? seen : qline);
+  $("bdStat").innerHTML = !bd.bits ? "連続(丸めない)" : bd.dither ? `ディザ: 粒を平均した見え方で 最大 ΔE*ab <b>${st.maxStep.toFixed(2)}</b>・見えやすい段 <b>${st.visible}</b>` : `段 ${st.n}・最大 ΔE*ab <b>${st.maxStep.toFixed(2)}</b>・見えやすい段 <b>${st.visible}</b>`;
+  $("bdStrip").dataset.visible = st.visible;
+  document.querySelectorAll("#bdSrc button").forEach((b) => b.classList.toggle("on", b.dataset.v === bd.src));
+  document.querySelectorAll("#bdBits button").forEach((b) => b.classList.toggle("on", Number(b.dataset.v) === bd.bits));
+  document.querySelectorAll("#bdEnc button").forEach((b) => b.classList.toggle("on", b.dataset.v === bd.enc));
+  document.querySelectorAll("#bdOpt button").forEach((b) => b.classList.toggle("on", !!bd[b.dataset.v]));
+}
+{
+  const mk = (box, items, f) => items.forEach(([v, name]) => {
+    const b = document.createElement("button"); b.textContent = name; b.dataset.v = v;
+    b.addEventListener("click", () => { f(v); renderBd(); }); $(box).appendChild(b);
+  });
+  mk("bdSrc", [["kA", "黒→A"], ["AB", "A→B(1番目の混ぜ方)"]], (v) => (bd.src = v));
+  mk("bdBits", BITS.map((b) => [b, b ? `${b}bit` : "連続"]), (v) => (bd.bits = Number(v)));
+  mk("bdEnc", ENCODINGS.map((e) => [e.id, e.name]), (v) => (bd.enc = v));
+  mk("bdOpt", [["dither", "ディザ"], ["dark", "暗い所を拡大"]], (v) => (bd[v] = !bd[v]));
+}
+
 // ---- まわりで変わる(同時対比)----
 // 対象=A/B/C、背景のペア=黒と白/補色と同系(明るさは対象と同じ=色みの対比だけ)/B と C
 const sc = { target: "a", bg: "bw", side: 0, link: false, m: [0, 0, 0] };
@@ -469,6 +538,7 @@ function update() {
   renderBands();
   renderCube();
   renderMeta();
+  renderBd();
   renderSc();
 }
 // 方式の数や画面の出し方が変わったら帯を作り直す(WebGPU と 2D の canvas は使い回せない)

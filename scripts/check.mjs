@@ -225,6 +225,31 @@ for (const [nm, a, b] of [...PAIRS, ["白×黒", "#ffffff", "#000000"], ["白×�
   ok(Math.abs(same[1] - x[1]) < 1e-6 && dark[1] > x[1], `明るさ合わせ: 同じ背景なら同じ色、黒い背景の上の灰色は灰色の背景では明るい灰色に相当(Y ${x[1].toFixed(3)} → ${dark[1].toFixed(3)})`);
 }
 
+// 16. 段差(ビット深度)
+{
+  const B = await import("../banding.js");
+  // 丸めの誤差は半目盛り以内(ガンマの数値で)
+  let worst = 0;
+  for (let i = 0; i <= 200; i++) {
+    const x = C.linToXYZ("srgb", [i / 200, (i / 200) ** 2, 0.3]);
+    const q = B.quantize(x, { gamut: "srgb", enc: "gamma", bits: 10 });
+    const a = C.xyzToRgb("srgb", x), b = C.xyzToRgb("srgb", q);
+    worst = Math.max(worst, ...a.map((v, k) => Math.abs(v - b[k]) * 1023));
+  }
+  ok(worst <= 0.5 + 1e-6, `10bit に丸めた誤差は半目盛り以内(最大 ${worst.toFixed(3)} 目盛り)`);
+  const ramp = (enc, bits) => B.steps(Array.from({ length: 4001 }, (_, i) => B.quantize(C.linToXYZ("srgb", [1, 1, 1].map(() => (i / 4000) ** 2.2)), { gamut: "srgb", enc, bits })));
+  const g8 = ramp("gamma", 8), l8 = ramp("linear", 8), p8 = ramp("pq", 8), p10 = ramp("pq", 10), g6 = ramp("gamma", 6);
+  ok(g8.visible === 0 && l8.visible > 0 && l8.maxStep > 3 * g8.maxStep, `黒→白 8bit: ガンマは見えやすい段 0(最大 ΔE*ab ${g8.maxStep.toFixed(2)})、線形は ${l8.visible} 段(最大 ${l8.maxStep.toFixed(2)})`);
+  ok(p8.visible > 0 && p10.visible === 0 && g6.visible > 0, `PQ は 8bit で段が見え(${p8.visible})10bit で消える、6bit はガンマでも段が見える(${g6.visible})`);
+  // ディザ: 同じ色をノイズ違いで丸めて「送る数値(ガンマ付き)」を平均すると、元の数値に戻る(丸めだけより近い)
+  const x = C.linToXYZ("srgb", [0.0123, 0.0123, 0.0123]);
+  const code = (v) => C.xyzToRgb("srgb", v)[1] * 63;
+  const plain = code(B.quantize(x, { bits: 6 }));
+  let avg = 0;
+  for (let i = 0; i < 4000; i++) avg += code(B.quantize(x, { bits: 6, noise: [0, 1, 2].map((ch) => B.tri(i, 7, ch)) })) / 4000;
+  ok(Math.abs(avg - code(x)) < 0.05 && Math.abs(avg - code(x)) < Math.abs(plain - code(x)) / 3, `ディザ(6bit)で送る数値の平均は元に戻る: 元 ${code(x).toFixed(3)} 目盛り / 丸めだけ ${plain.toFixed(0)} / ディザ平均 ${avg.toFixed(3)}`);
+}
+
 // 10. 色度図: スペクトル軌跡の表を独立な近似(Wyman, Sloan & Shirley 2013 の等色関数フィット)と突き合わせる
 {
   const g = (l, mu, s1, s2) => Math.exp(-0.5 * ((l - mu) / (l < mu ? s1 : s2)) ** 2);

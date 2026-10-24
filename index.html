@@ -34,6 +34,15 @@
         <div id="metatable"></div>
         <p class="hint">反射で見える色(絵の具・印刷)は照明で変わる。目は照明の白に慣れる(Bradford の色順応)ので白い紙は白のまま。それでも反射率の形がちがう2つは、昼の光で同じに見えても別の照明でずれる=条件等色(メタメリズム)。左=絵の具で塗った/右=印刷した、数字=2つの見た目の差 ΔEok(0.02 前後から見分けがつく)。演色性 Ra は「同じ色温度の基準の光(5000K未満は黒体、以上は昼光)」と試験色14色を比べた点数(CIE 13.3。R1〜R8の平均。100が満点)。四角の上=基準の光、下=この照明。白熱電球や昼光は基準そのものなので100、ピークのとがった光ほど下がる。昼の光でもずれている行は条件等色ではなく、印刷では出せない色(インクの色域の外)。灰色の行は、墨だけで刷った灰色とCMYを混ぜて刷った灰色を昼の光で合わせたもの(条件等色の定番)。照明は帯の絵の具式・インク式にも効く。画面の色は自分で光るので変わらない。</p>
       </section>
+      <section class="bd">
+        <div class="cubehead"><b>段差(ビット深度)</b><span class="seg2" id="bdSrc"></span></div>
+        <div class="opt"><span>ビット</span><span class="seg2" id="bdBits"></span></div>
+        <div class="opt"><span>数値の持ち方</span><span class="seg2" id="bdEnc"></span></div>
+        <div class="opt"><span class="seg2" id="bdOpt"></span><span class="hint" id="bdStat"></span></div>
+        <canvas id="bdStrip"></canvas>
+        <canvas id="bdGraph"></canvas>
+        <p class="hint">画面へ送る数値を 2^ビット 段に丸めたときのグラデーション。下のグラフ=明るさ L*(細い灰色=丸める前、色の線=丸めた後。ディザのときは粒を縦に平均した見え方)。数字は段の数・隣どうしの段の色差 ΔE*ab の最大・1 を超える段(=筋として見えやすい)の数。ふつうの画面は「ガンマ」で数値を持つので 8bit でも段が見えにくい。光の量のまま(線形)だと暗い所が階段になる。HDR の PQ は 8bit では足りず 10bit が要る。ディザ=±1段の細かいノイズを足してから丸める。送る数値の平均は元に戻り、段が細かい粒に置きかわる。この画面自体も 8bit 前後なので、10bit との差は数字とグラフで見る。色域は出力デバイスのもの(理想・印刷のときは作業色域)。</p>
+      </section>
       <section class="sc">
         <div class="cubehead"><b>まわりで変わる(同時対比)</b><span class="seg2" id="scT"></span></div>
         <div class="opt"><span>背景</span><span class="seg2" id="scBg"></span></div>
