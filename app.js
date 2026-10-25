@@ -46,7 +46,7 @@ const DEFAULT = { ...PRESETS[0], name: "青×黄+近回り", use3: true, arc: "n
 const FAV_KEY = "iromaze-lab-favs-v1";
 const METHOD_COL = { rgb: "#ffffff", lin: "#9ad0ff", hsl: "#ff7ad9", lab: "#b6f36a", lch: "#6af3c0", oklab: "#4fd1ff", oklch: "#3d8bff", ictcp: "#ffe14d", jzazbz: "#ff8a4d", paint: "#ffa94d", ink: "#c792ff" };
 // 見え方の設定(リセットでは変えない「モード」)。URLには既定値と違うものだけ書く
-const MODE_DEFAULTS = { methods: ["rgb", "oklab", "paint"], gamut: "srgb", device: "ideal", gm: "chroma", tm: "rolloff", env: "dark", cvd: "none", scr: "auto", il: "d65" };
+const MODE_DEFAULTS = { methods: ["rgb", "oklab", "paint"], gamut: "srgb", device: "ideal", gm: "chroma", tm: "rolloff", env: "dark", cvd: "none", scr: "auto", il: "d65", tab: "mix" };
 const K_DEFAULT = 1;
 
 const $ = (id) => document.getElementById(id);
@@ -68,7 +68,7 @@ const opts = () => ({ device: state.device, gamut: state.gamut, gamutMap: state.
 }
 
 // ---- URLハッシュ(#a=0000ff&b=ffff00&c=auto&g=p3&dev=srgb …) ----
-const HASH_KEYS = { gamut: "g", device: "dev", gm: "gm", tm: "tm", env: "env", cvd: "cvd", scr: "scr", il: "il" };
+const HASH_KEYS = { gamut: "g", device: "dev", gm: "gm", tm: "tm", env: "env", cvd: "cvd", scr: "scr", il: "il", tab: "tab" };
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   const hex = (v) => (v && /^[0-9a-f]{6}$/i.test(v) ? "#" + v.toLowerCase() : null);
@@ -171,6 +171,9 @@ function renderBands() {
       el.dataset.out = d.flags.filter((f) => f.outGamut || f.overPeak).length;
     }
   }
+}
+function renderPipe() {
+  const hdr = useHdr(), scale = hdr ? 1 : sdrScale();
   const dev = DEVICE[state.device];
   const parts = [`作業色域 ${GAMUTS[state.gamut].name}`, `→ ${dev.name}`];
   if (state.cvd !== "none") parts.push(`→ 色覚 ${CVDS.find((c) => c.id === state.cvd).name}`);
@@ -366,7 +369,7 @@ function syncInputs() {
   }
   syncPicker();
   $("use3").checked = state.use3; $("c3row").hidden = !state.use3;
-  for (const [id, key] of [["gamut", "gamut"], ["device", "device"], ["gm", "gm"], ["tm", "tm"], ["env", "env"], ["cvd", "cvd"], ["scr", "scr"], ["il", "il"]])
+  for (const [id, key] of [["gamut", "gamut"], ["device", "device"], ["gm", "gm"], ["tm", "tm"], ["env", "env"], ["cvd", "cvd"], ["scr", "scr"], ["il", "il"], ["tabs", "tab"]])
     document.querySelectorAll(`#${id} button`).forEach((b) => b.classList.toggle("on", b.dataset.v === state[key]));
   document.querySelectorAll("#methods .chip").forEach((b) => b.classList.toggle("off", !state.methods.includes(b.dataset.m)));
   document.querySelectorAll("#krows .row").forEach((row) => {
@@ -532,14 +535,22 @@ function renderSc() {
   ["mL", "mA", "mB"].forEach((id, i) => $(id).addEventListener("input", (e) => { sc.m[i] = Number(e.target.value); renderSc(); }));
 }
 
+// ---- タブ(欄を1つずつ。全部=縦に並べる)。隠れている欄は描かない(スマホで軽く・canvas は幅0で描けない)----
+const TABS = [
+  { id: "mix", name: "混ぜる" }, { id: "view", name: "図" }, { id: "light", name: "照明" },
+  { id: "bd", name: "段差" }, { id: "sc", name: "対比" }, { id: "all", name: "全部" },
+];
+const shown = (tab) => state.tab === "all" || state.tab === tab;
 function update() {
   setIlluminant(state.il);
   writeHash();
-  renderBands();
-  renderCube();
-  renderMeta();
-  renderBd();
-  renderSc();
+  document.querySelectorAll("section[data-tab]").forEach((el) => { el.hidden = !shown(el.dataset.tab); });
+  renderPipe();
+  if (shown("mix")) renderBands();
+  if (shown("view")) renderCube();
+  if (shown("light")) renderMeta();
+  if (shown("bd")) renderBd();
+  if (shown("sc")) renderSc();
 }
 // 方式の数や画面の出し方が変わったら帯を作り直す(WebGPU と 2D の canvas は使い回せない)
 let builtKey = "";
@@ -650,6 +661,7 @@ segment("il", ILLUMINANTS, "il");
 segment("scr", [{ id: "auto", name: "この画面の力で", note: "P3・HDRに対応していればそのまま出す" }, { id: "sdr", name: "SDRで再現", note: "HDRでも、上限を白にして暗く縮めて見せる" }], "scr");
 segment("device", DEVICES, "device");
 segment("cvd", CVDS, "cvd");
+segment("tabs", TABS, "tab", () => $("tabs").scrollIntoView({ block: "nearest" }));
 renderMethods();
 renderKRows();
 readHash();
@@ -657,5 +669,5 @@ renderFavs();
 syncInputs();
 rebuild();
 addEventListener("hashchange", () => { readHash(); syncInputs(); rebuild(); });
-new ResizeObserver(() => { renderBands(); renderCube(); }).observe($("bands"));
+new ResizeObserver(() => { if (shown("mix")) renderBands(); if (shown("view")) renderCube(); if (shown("bd")) renderBd(); }).observe(document.querySelector(".view"));
 initHdr().then((ok) => { if (ok) { syncInputs(); rebuild(); } });

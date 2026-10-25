@@ -110,3 +110,6 @@ details a { color: #8ab4ff; }
 .crigrid .sw2 { height: 30px; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; border: 1px solid #0008; }
 .crigrid .sw2 i { flex: 1; }
 .crigrid .low { color: #ffd166; font-weight: bold; }
+
+.tabs { position: sticky; top: -10px; z-index: 2; display: flex; gap: 4px; flex-wrap: wrap; margin: 4px -12px 10px; padding: 6px 12px; background: #16171b; border-bottom: 1px solid #2e3038; }
+.tabs button { flex: 1 1 auto; padding: 6px 10px; font-size: 13px; }

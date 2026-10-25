@@ -34,8 +34,9 @@
 - 同時対比の欄: 対象 A/B/C を背景2つ(黒と白/補色と同系=明るさは対象と同じ/BとC)の上に置く。CAM16 で明るさの対比を予測(色みの対比は扱わないと明記)。灰色(Y=0.2=Yb20)の上の四角を Oklab の L・a・b スライダーで「同じに見える」よう合わせ、自分の目のずれと予測を並べる。「つなげて確かめる」で同じ色の帯を渡す
 - 帯の真ん中の色見本を押すと sRGB 表記と「印刷なら CMYK」をトースト(混ぜた結果そのもの)
 - 選択はすべてその場のボタン(プルダウンは使わない。ユーザー要望 2026-10-22)
+- 欄はタブで1つずつ(混ぜる/図/照明/段差/対比/全部。既定=混ぜる、URL `tab`)。タブ帯は上に貼りつく。隠れた欄は描かない(update で shown() を見る。ResizeObserver は .view を見る)。帯の上の経路の説明(pipeinfo)は帯と別の renderPipe で常に更新(📷が使う)
 - 帯の下の線: 赤紫=デバイス色域外/黄=上限超え/橙=両方(divの背景グラデーション。canvasにするとsmokeが空の帯をblank判定する)
-- URLは既定値と違う設定だけ書く(g, dev, gm, tm, env, cvd, scr, m=方式列, ka/kb/kc=明るさ倍率)
+- URLは既定値と違う設定だけ書く(g, dev, gm, tm, env, cvd, scr, m=方式列, ka/kb/kc=明るさ倍率, tab)
 
 ## 混色の細部
 - **RGB直線**: 作業色域のガンマ付き数値をそのまま線形補間。CSS・お絵かきソフトの既定と同じ。sRGBなら補色の中間は (128,128,128)。
@@ -52,7 +53,7 @@
 - `npm run dev` → http://localhost:5193(`scripts/serve.mjs`、依存なし)
 - `npm run check` → 物理の検算(9空間の往復/白+白・同色/補色でRGBの彩度低下/青+黄=緑/自動3色目/色域の包含と白/PQ・ICtCp・Jzazbzの白/出力は必ずデバイス内・灰色は不変・圧縮は単調で上限以下/彩度を下げても色相不変/色覚で白は白・P型で赤緑の差が縮む/映り込みで黒が浮く)。NGで exit 1
 - HDR経路の確認: システムChrome(channel:"chrome", --enable-unsafe-webgpu --ignore-gpu-blocklist --use-angle=d3d11)で matchMedia を偽装し、帯の canvas の `_gpu` と getConfiguration().toneMapping を見る(1超えの明るさは実機でしか見えない)
-- `node Z:/Claude/_tools/smoke.mjs --app iromaze-lab "http://localhost:5193/#a=0000ff&b=ffff00&c=auto"`(URLハッシュで色を固定。c無しだと「あり」段が非表示=未描画でblank判定になる)
+- `node Z:/Claude/_tools/smoke.mjs --app iromaze-lab "http://localhost:5193/#a=0000ff&b=ffff00&c=auto&tab=all"`(URLハッシュで色を固定。c無しだと「あり」段が非表示=未描画でblank判定になる。tab=all で全欄=canvas 9枚。タブ1つだと他の欄の canvas は隠れて描かれない)
 - デプロイ: GitHub acglay/iromaze-lab に push → Vercel 自動デプロイ。公開の確認は `gh api repos/acglay/iromaze-lab/commits/<sha>/status`(curl で本番を見ると遅延・キャッシュで古い版が返ることがある)
 
 ## 残課題
